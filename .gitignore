@@ -1,0 +1,20 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# virtual environment
+.venv/
+venv/
+
+# PyCharm
+.idea/
+
+# VS Code
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# logs
+*.log
