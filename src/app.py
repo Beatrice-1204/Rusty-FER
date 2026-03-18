@@ -4,13 +4,13 @@ from camera.camera_stream import CameraStream
 from face_detection.MP_face_processor import MediaPipeFaceProcessor
 from image_processing.image_preprocessor import ImagePreprocessor
 from emotion_recognition.emotion_predictor import EmotionPredictor
-import tensorflow as tf
-from image_processing.face_aligner import FaceAligner
-from image_processing.image_preprocessor import ImagePreprocessor
 from collections import deque
 import numpy as np
+import time
 
 DEBUG_PIPELINE = False
+DEBUG_LOGGING = False
+PERF_LOG_EVERY_N_FRAMES = 30
 
 
 def main():
@@ -33,6 +33,14 @@ def main():
     preprocessor = ImagePreprocessor(target_size=48)
     predictor = EmotionPredictor(model_path="models/emotion_model.h5")
     emotion_buffer = deque(maxlen=5)
+    frame_counter = 0
+    perf_totals = {
+        "camera_read": 0.0,
+        "face_process": 0.0,
+        "preprocess": 0.0,
+        "predict": 0.0,
+        "total": 0.0,
+    }
 
     cv2.namedWindow("Camera")
 
@@ -43,8 +51,11 @@ def main():
     # ==========================
 
     while True:
+        loop_start = time.perf_counter()
 
+        read_start = time.perf_counter()
         frame = camera.read()
+        perf_totals["camera_read"] += time.perf_counter() - read_start
         if frame is None:
             print("Eroare citire frame.")
             break
@@ -53,9 +64,12 @@ def main():
         voting_enabled = cv2.getTrackbarPos("Voting", "Camera")
 
         # MediaPipe detectează landmarkuri
+        face_start = time.perf_counter()
         result = face_processor.process(frame)
+        perf_totals["face_process"] += time.perf_counter() - face_start
 
         # Extrage ROI față
+        preprocess_start = time.perf_counter()
         face_roi = preprocessor.extract_face_roi(frame, result)
 
         # Preprocesare pentru CNN
@@ -71,12 +85,17 @@ def main():
                 face_roi,
                 use_equalization=bool(equalization_enabled)
             )
+        perf_totals["preprocess"] += time.perf_counter() - preprocess_start
 
         # Predicție emoție
         if processed_face is None:
+            frame_counter += 1
+            perf_totals["total"] += time.perf_counter() - loop_start
             continue
 
+        predict_start = time.perf_counter()
         emotion_label, confidence = predictor.predict(processed_face)
+        perf_totals["predict"] += time.perf_counter() - predict_start
 
         if emotion_label is not None:
 
@@ -85,7 +104,8 @@ def main():
 
                 emotion_buffer.append((emotion_label, confidence))
 
-                print("Buffer:", [e[0] for e in emotion_buffer])
+                if DEBUG_LOGGING:
+                    print("Buffer:", [e[0] for e in emotion_buffer])
 
                 if len(emotion_buffer) == 5:
                     labels = [e[0] for e in emotion_buffer]
@@ -95,9 +115,10 @@ def main():
                         [e[1] for e in emotion_buffer if e[0] == stable_label]
                     )
 
-                    print("Voting on:", labels)
-                    print("Stable emotion:", stable_label, "Confidence:", stable_conf)
-                    print("------")
+                    if DEBUG_LOGGING:
+                        print("Voting on:", labels)
+                        print("Stable emotion:", stable_label, "Confidence:", stable_conf)
+                        print("------")
 
                     emotion_label = stable_label
                     confidence = stable_conf
@@ -159,6 +180,28 @@ def main():
         if key == ord('d'):
             DEBUG_PIPELINE = not DEBUG_PIPELINE
             print("Debug mode:", DEBUG_PIPELINE)
+
+        frame_counter += 1
+        perf_totals["total"] += time.perf_counter() - loop_start
+
+        if frame_counter % PERF_LOG_EVERY_N_FRAMES == 0:
+            avg_camera_ms = perf_totals["camera_read"] / frame_counter * 1000
+            avg_face_ms = perf_totals["face_process"] / frame_counter * 1000
+            avg_preprocess_ms = perf_totals["preprocess"] / frame_counter * 1000
+            avg_predict_ms = perf_totals["predict"] / frame_counter * 1000
+            avg_total_ms = perf_totals["total"] / frame_counter * 1000
+            fps = 1000.0 / avg_total_ms if avg_total_ms > 0 else 0.0
+
+            print(
+                "[PERF]",
+                f"frames={frame_counter}",
+                f"camera={avg_camera_ms:.1f}ms",
+                f"face={avg_face_ms:.1f}ms",
+                f"preprocess={avg_preprocess_ms:.1f}ms",
+                f"predict={avg_predict_ms:.1f}ms",
+                f"total={avg_total_ms:.1f}ms",
+                f"fps={fps:.1f}"
+            )
 
     camera.release()
     cv2.destroyAllWindows()

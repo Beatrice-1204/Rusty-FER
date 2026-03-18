@@ -43,8 +43,9 @@ class MediaPipeFaceProcessor:
     def process(self, frame_bgr):
         #Ruleaza MediaPipe pe frame
         # frame_bgr -img OpenCV
+        frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
 
-        result=self.face_mesh.process(frame_bgr)
+        result=self.face_mesh.process(frame_rgb)
 
         return result
 
