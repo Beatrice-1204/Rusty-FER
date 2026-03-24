@@ -1,6 +1,4 @@
 numpy
 opencv-python
 mediapipe
-tensorflow
-h5py
 onnxruntime

@@ -3,7 +3,6 @@ import cv2
 from camera.camera_stream import CameraStream
 from face_detection.MP_face_processor import MediaPipeFaceProcessor
 from image_processing.image_preprocessor import ImagePreprocessor
-from emotion_recognition.emotion_predictor import EmotionPredictor
 from emotion_recognition.onnx_emotion_predictor import OnnxEmotionPredictor
 from collections import deque
 import numpy as np
@@ -12,7 +11,6 @@ import time
 DEBUG_PIPELINE = False
 DEBUG_LOGGING = False
 PERF_LOG_EVERY_N_FRAMES = 30
-USE_ONNX = True
 USE_ONNX_EQUALIZATION = False
 
 
@@ -34,11 +32,7 @@ def main():
     )
 
     preprocessor = ImagePreprocessor(target_size=48)
-    predictor = (
-        OnnxEmotionPredictor(model_path="models/onnx/emotion-ferplus-7.onnx")
-        if USE_ONNX
-        else EmotionPredictor(model_path="models/emotion_model.h5")
-    )
+    predictor = OnnxEmotionPredictor(model_path="models/onnx/emotion-ferplus-7.onnx")
     emotion_buffer = deque(maxlen=5)
     frame_counter = 0
     perf_totals = {
@@ -101,15 +95,12 @@ def main():
             continue
 
         predict_start = time.perf_counter()
-        if USE_ONNX:
-            emotion_label, confidence = predictor.predict(
-                face_roi,
-                processed_face=processed_face,
-                result=result,
-                use_equalization=USE_ONNX_EQUALIZATION
-            )
-        else:
-            emotion_label, confidence = predictor.predict(processed_face)
+        emotion_label, confidence = predictor.predict(
+            face_roi,
+            processed_face=processed_face,
+            result=result,
+            use_equalization=USE_ONNX_EQUALIZATION
+        )
         perf_totals["predict"] += time.perf_counter() - predict_start
 
         if emotion_label is not None:
@@ -151,7 +142,7 @@ def main():
         if emotion_label is not None:
 
             text = f"{emotion_label} ({confidence*100:.1f}%)"
-            if USE_ONNX and getattr(predictor, "last_raw_label", None):
+            if getattr(predictor, "last_raw_label", None):
                 text += f" | raw: {predictor.last_raw_label}"
 
             cv2.putText(
