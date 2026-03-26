@@ -1,5 +1,6 @@
 import time
 from collections import deque
+import os
 
 import cv2
 import numpy as np
@@ -21,8 +22,25 @@ MIN_TOP1_TOP2_MARGIN = 0.00
 def main():
     global DEBUG_PIPELINE
 
-    camera = CameraStream(camera_index=0)
+    camera_backend = os.getenv("RUSTY_CAMERA_BACKEND", "auto")
+    camera_width = int(os.getenv("RUSTY_CAMERA_WIDTH", "640"))
+    camera_height = int(os.getenv("RUSTY_CAMERA_HEIGHT", "480"))
+    camera_index = int(os.getenv("RUSTY_CAMERA_INDEX", "0"))
+
+    camera = CameraStream(
+        camera_index=camera_index,
+        width=camera_width,
+        height=camera_height,
+        backend=camera_backend,
+    )
     camera.open()
+
+    print(
+        "[CAMERA]",
+        f"backend={camera.active_backend}",
+        f"size={camera_width}x{camera_height}",
+        f"index={camera_index}",
+    )
 
     face_processor = YuNetFaceDetector(
         model_path="models/yunet/face_detection_yunet.onnx",
