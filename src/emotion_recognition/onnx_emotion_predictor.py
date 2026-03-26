@@ -63,80 +63,17 @@ class OnnxEmotionPredictor:
             return
         cv2.imwrite(str(self.debug_dir / filename), image)
 
-    def _tighten_face_roi(self, face_roi):
+    def _prepare_from_roi(self, face_roi, use_equalization=True):
         """
-        Tighten the shared face ROI for the ONNX path only.
-        The shared landmark box is fairly loose, so we crop to a slightly
-        smaller square centered on the face with a small upward bias.
-        """
-        h, w = face_roi.shape[:2]
-        if h == 0 or w == 0:
-            return face_roi
-
-        side = int(min(h, w) * 0.9)
-        side = max(side, 1)
-
-        center_x = w // 2
-        center_y = int(h * 0.46)
-
-        x1 = max(0, center_x - side // 2)
-        y1 = max(0, center_y - side // 2)
-        x2 = min(w, x1 + side)
-        y2 = min(h, y1 + side)
-
-        if x2 - x1 < side:
-            x1 = max(0, x2 - side)
-        if y2 - y1 < side:
-            y1 = max(0, y2 - side)
-
-        return face_roi[y1:y2, x1:x2]
-
-    def _align_face_roi(self, face_roi, result):
-        """
-        Apply a small ONNX-only roll correction using MediaPipe eye landmarks.
-        """
-        if face_roi is None or result is None or not result.multi_face_landmarks:
-            return face_roi
-
-        h, w = face_roi.shape[:2]
-        if h == 0 or w == 0:
-            return face_roi
-
-        face_landmarks = result.multi_face_landmarks[0]
-        left_eye = face_landmarks.landmark[33]
-        right_eye = face_landmarks.landmark[263]
-
-        left_eye_px = (int(left_eye.x * w), int(left_eye.y * h))
-        right_eye_px = (int(right_eye.x * w), int(right_eye.y * h))
-
-        dx = right_eye_px[0] - left_eye_px[0]
-        dy = right_eye_px[1] - left_eye_px[1]
-        angle_deg = np.degrees(np.arctan2(dy, dx))
-
-        center = (w // 2, h // 2)
-        rotation_matrix = cv2.getRotationMatrix2D(center, angle_deg, 1.0)
-
-        return cv2.warpAffine(
-            face_roi,
-            rotation_matrix,
-            (w, h),
-            flags=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_REPLICATE
-        )
-
-    def _prepare_from_roi(self, face_roi, result=None, use_equalization=True):
-        """
-        Prepare ONNX input directly from the detected face ROI.
+        Prepare ONNX input directly from the already prepared face ROI.
         The FERPlus ONNX model expects grayscale 64x64 in NCHW layout.
         This path keeps pixel values in the 0..255 range as float32.
         """
         if face_roi is None:
             return None, None, None, None, None
 
-        tight_roi = self._tighten_face_roi(face_roi)
-        aligned_roi = self._align_face_roi(tight_roi, result)
-
-        gray = cv2.cvtColor(aligned_roi, cv2.COLOR_BGR2GRAY)
+        prepared_roi = face_roi
+        gray = cv2.cvtColor(prepared_roi, cv2.COLOR_BGR2GRAY)
         if use_equalization:
             gray = cv2.equalizeHist(gray)
 
@@ -144,7 +81,7 @@ class OnnxEmotionPredictor:
         onnx_input_64 = cv2.resize(gray, (64, 64), interpolation=cv2.INTER_LINEAR)
         nchw = np.expand_dims(np.expand_dims(onnx_input_64.astype(np.float32), axis=0), axis=0)
 
-        return nchw, processed_48, onnx_input_64, tight_roi, aligned_roi
+        return nchw, processed_48, onnx_input_64, prepared_roi, prepared_roi
 
     def _log_top3(self, probabilities):
         top_indices = np.argsort(probabilities)[-3:][::-1]
@@ -156,7 +93,7 @@ class OnnxEmotionPredictor:
         top3_text = ", ".join(f"{label}={score:.4f}" for label, score in top3)
         print(f"[ONNX] top3: {top3_text}")
 
-    def predict(self, face_roi, processed_face=None, result=None, use_equalization=True):
+    def predict(self, face_roi, processed_face=None, use_equalization=True):
         """
         Returns:
             - mapped 5-class label
@@ -166,7 +103,6 @@ class OnnxEmotionPredictor:
         """
         input_tensor, processed_48, onnx_input_64, tight_roi, aligned_roi = self._prepare_from_roi(
             face_roi,
-            result=result,
             use_equalization=use_equalization
         )
         if input_tensor is None:

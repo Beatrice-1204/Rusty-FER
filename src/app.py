@@ -1,12 +1,13 @@
+import time
+from collections import deque
+
 import cv2
+import numpy as np
 
 from camera.camera_stream import CameraStream
-from face_detection.MP_face_processor import MediaPipeFaceProcessor
-from image_processing.image_preprocessor import ImagePreprocessor
 from emotion_recognition.onnx_emotion_predictor import OnnxEmotionPredictor
-from collections import deque
-import numpy as np
-import time
+from face_detection.yunet_face_detector import YuNetFaceDetector
+from image_processing.image_preprocessor import ImagePreprocessor
 
 DEBUG_PIPELINE = False
 DEBUG_LOGGING = False
@@ -17,18 +18,14 @@ USE_ONNX_EQUALIZATION = False
 def main():
     global DEBUG_PIPELINE
 
-    # ==========================
-    # INITIALIZARE MODULE
-    # ==========================
-
     camera = CameraStream(camera_index=0)
     camera.open()
 
-    face_processor = MediaPipeFaceProcessor(
-        max_num_faces=1,
-        refine_landmarks=True,
-        min_detection_confidence=0.5,
-        min_tracking_confidence=0.5
+    face_processor = YuNetFaceDetector(
+        model_path="models/yunet/face_detection_yunet.onnx",
+        score_threshold=0.6,
+        nms_threshold=0.3,
+        top_k=1,
     )
 
     preprocessor = ImagePreprocessor(target_size=48)
@@ -44,12 +41,8 @@ def main():
     }
 
     cv2.namedWindow("Camera")
-
     cv2.createTrackbar("Equalization", "Camera", 1, 1, lambda x: None)
     cv2.createTrackbar("Voting", "Camera", 1, 1, lambda x: None)
-    # ==========================
-    # LOOP PRINCIPAL
-    # ==========================
 
     while True:
         loop_start = time.perf_counter()
@@ -64,17 +57,13 @@ def main():
         equalization_enabled = cv2.getTrackbarPos("Equalization", "Camera")
         voting_enabled = cv2.getTrackbarPos("Voting", "Camera")
 
-        # MediaPipe detectează landmarkuri
         face_start = time.perf_counter()
-        result = face_processor.process(frame)
+        detection = face_processor.detect_one(frame)
         perf_totals["face_process"] += time.perf_counter() - face_start
 
-        # Extrage ROI față
         preprocess_start = time.perf_counter()
-        face_roi = preprocessor.extract_face_roi(frame, result)
+        face_roi = preprocessor.prepare_face_roi(frame, detection)
 
-        # Preprocesare pentru CNN
-       # processed_face = preprocessor.preprocess(face_roi)
         if DEBUG_PIPELINE:
             processed_face, debug_images = preprocessor.preprocess(
                 face_roi,
@@ -88,7 +77,6 @@ def main():
             )
         perf_totals["preprocess"] += time.perf_counter() - preprocess_start
 
-        # Predicție emoție
         if processed_face is None:
             frame_counter += 1
             perf_totals["total"] += time.perf_counter() - loop_start
@@ -98,16 +86,12 @@ def main():
         emotion_label, confidence = predictor.predict(
             face_roi,
             processed_face=processed_face,
-            result=result,
             use_equalization=USE_ONNX_EQUALIZATION
         )
         perf_totals["predict"] += time.perf_counter() - predict_start
 
         if emotion_label is not None:
-
-            # Dacă voting este activ
             if voting_enabled:
-
                 emotion_buffer.append((emotion_label, confidence))
 
                 if DEBUG_LOGGING:
@@ -116,7 +100,6 @@ def main():
                 if len(emotion_buffer) == 5:
                     labels = [e[0] for e in emotion_buffer]
                     stable_label = max(set(labels), key=labels.count)
-
                     stable_conf = np.mean(
                         [e[1] for e in emotion_buffer if e[0] == stable_label]
                     )
@@ -128,19 +111,11 @@ def main():
 
                     emotion_label = stable_label
                     confidence = stable_conf
-
                     emotion_buffer.clear()
-
             else:
-                # Dacă voting este dezactivat,foloseste emoția brută
                 emotion_buffer.clear()
 
-        # ==========================
-        # AFIȘARE EMOȚIE
-        # ==========================
-
         if emotion_label is not None:
-
             text = f"{emotion_label} ({confidence*100:.1f}%)"
             if getattr(predictor, "last_raw_label", None):
                 text += f" | raw: {predictor.last_raw_label}"
@@ -155,8 +130,7 @@ def main():
                 3
             )
 
-        # Desenează mesh peste imagine
-        face_processor.draw(frame, result)
+        face_processor.draw(frame, detection)
 
         cv2.imshow("Rusty - Emotion Recognition", frame)
         if DEBUG_PIPELINE and 'debug_images' in locals():
@@ -176,9 +150,6 @@ def main():
             combined = np.vstack((top, bottom))
 
             cv2.imshow("Emotion Pipeline Debug", combined)
-
-        #if cv2.waitKey(1) & 0xFF == ord("q"):
-        #break
 
         key = cv2.waitKey(1) & 0xFF
 
