@@ -13,6 +13,9 @@ DEBUG_PIPELINE = False
 DEBUG_LOGGING = False
 PERF_LOG_EVERY_N_FRAMES = 30
 USE_ONNX_EQUALIZATION = False
+DETECT_EVERY_N_FRAMES = 2
+MIN_EMOTION_CONFIDENCE = 0.45
+MIN_TOP1_TOP2_MARGIN = 0.00
 
 
 def main():
@@ -32,6 +35,9 @@ def main():
     predictor = OnnxEmotionPredictor(model_path="models/onnx/emotion-ferplus-7.onnx")
     emotion_buffer = deque(maxlen=5)
     frame_counter = 0
+    last_detection = None
+    last_stable_emotion = None
+    last_stable_confidence = None
     perf_totals = {
         "camera_read": 0.0,
         "face_process": 0.0,
@@ -58,7 +64,12 @@ def main():
         voting_enabled = cv2.getTrackbarPos("Voting", "Camera")
 
         face_start = time.perf_counter()
-        detection = face_processor.detect_one(frame)
+        should_detect = last_detection is None or frame_counter % DETECT_EVERY_N_FRAMES == 0
+        if should_detect:
+            current_detection = face_processor.detect_one(frame)
+            if current_detection is not None:
+                last_detection = current_detection
+        detection = last_detection
         perf_totals["face_process"] += time.perf_counter() - face_start
 
         preprocess_start = time.perf_counter()
@@ -90,34 +101,70 @@ def main():
         )
         perf_totals["predict"] += time.perf_counter() - predict_start
 
+        top3 = getattr(predictor, "last_top3", [])
+        top1_score = float(top3[0][1]) if len(top3) >= 1 else (confidence or 0.0)
+        top2_score = float(top3[1][1]) if len(top3) >= 2 else 0.0
+        confidence_ok = confidence is not None and confidence >= MIN_EMOTION_CONFIDENCE
+        margin_ok = (top1_score - top2_score) >= MIN_TOP1_TOP2_MARGIN
+        prediction_is_confident = confidence_ok and margin_ok
+        show_raw_label = False
+
         if emotion_label is not None:
-            if voting_enabled:
-                emotion_buffer.append((emotion_label, confidence))
-
-                if DEBUG_LOGGING:
-                    print("Buffer:", [e[0] for e in emotion_buffer])
-
-                if len(emotion_buffer) == 5:
-                    labels = [e[0] for e in emotion_buffer]
-                    stable_label = max(set(labels), key=labels.count)
-                    stable_conf = np.mean(
-                        [e[1] for e in emotion_buffer if e[0] == stable_label]
-                    )
+            if prediction_is_confident:
+                if voting_enabled:
+                    emotion_buffer.append((emotion_label, confidence))
 
                     if DEBUG_LOGGING:
-                        print("Voting on:", labels)
-                        print("Stable emotion:", stable_label, "Confidence:", stable_conf)
-                        print("------")
+                        print("Buffer:", [e[0] for e in emotion_buffer])
 
-                    emotion_label = stable_label
-                    confidence = stable_conf
-                    emotion_buffer.clear()
+                    if len(emotion_buffer) == 5:
+                        labels = [e[0] for e in emotion_buffer]
+                        stable_label = max(set(labels), key=labels.count)
+                        stable_conf = np.mean(
+                            [e[1] for e in emotion_buffer if e[0] == stable_label]
+                        )
+
+                        if DEBUG_LOGGING:
+                            print("Voting on:", labels)
+                            print("Stable emotion:", stable_label, "Confidence:", stable_conf)
+                            print("------")
+
+                        emotion_label = stable_label
+                        confidence = stable_conf
+                        last_stable_emotion = stable_label
+                        last_stable_confidence = stable_conf
+                        show_raw_label = True
+                        emotion_buffer.clear()
+                    elif last_stable_emotion is not None:
+                        emotion_label = last_stable_emotion
+                        confidence = last_stable_confidence
+                    else:
+                        emotion_label = None
+                        confidence = None
+                else:
+                    last_stable_emotion = emotion_label
+                    last_stable_confidence = confidence
+                    show_raw_label = True
             else:
                 emotion_buffer.clear()
+                if last_stable_emotion is not None:
+                    emotion_label = last_stable_emotion
+                    confidence = last_stable_confidence
+                else:
+                    emotion_label = None
+                    confidence = None
+
+                if DEBUG_LOGGING:
+                    print(
+                        "[STABLE] reject",
+                        f"label={predictor.last_raw_label}",
+                        f"conf={top1_score:.3f}",
+                        f"margin={(top1_score - top2_score):.3f}"
+                    )
 
         if emotion_label is not None:
             text = f"{emotion_label} ({confidence*100:.1f}%)"
-            if getattr(predictor, "last_raw_label", None):
+            if show_raw_label and getattr(predictor, "last_raw_label", None):
                 text += f" | raw: {predictor.last_raw_label}"
 
             cv2.putText(
