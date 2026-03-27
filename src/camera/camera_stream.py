@@ -4,10 +4,13 @@ from typing import Optional
 
 import cv2
 
+PICAMERA2_IMPORT_ERROR = None
+
 try:
     from picamera2 import Picamera2
-except ImportError:
+except ImportError as exc:
     Picamera2 = None
+    PICAMERA2_IMPORT_ERROR = exc
 
 
 class CameraStream:
@@ -105,7 +108,28 @@ class CameraStream:
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
 
         if not self.cap.isOpened():
-            raise RuntimeError("Cannot open camera. Check access and device availability.")
+            self.cap.release()
+            self.cap = None
+
+            message = [
+                "Cannot open camera through OpenCV.",
+                f"Requested index: {self.camera_index}.",
+            ]
+
+            if platform.system().lower() == "linux":
+                message.append(
+                    "On Raspberry Pi CSI cameras, use Picamera2/libcamera instead of cv2.VideoCapture(0)."
+                )
+                message.append(
+                    "Run with RUSTY_CAMERA_BACKEND=picamera2 after installing the Raspberry Pi camera packages."
+                )
+
+                if PICAMERA2_IMPORT_ERROR is not None:
+                    message.append(
+                        f"Picamera2 import failed: {PICAMERA2_IMPORT_ERROR}."
+                    )
+
+            raise RuntimeError(" ".join(message))
 
         self.active_backend = "opencv"
 
