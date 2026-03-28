@@ -34,7 +34,12 @@ class OnnxEmotionPredictor:
         "contempt": "neutral",
     }
 
-    def __init__(self, model_path="models/onnx/emotion-ferplus-7.onnx", debug_dir="debug/onnx"):
+    def __init__(
+        self,
+        model_path="models/onnx/emotion-ferplus-7.onnx",
+        debug_dir="debug/onnx",
+        log_top3=False,
+    ):
         self.session = ort.InferenceSession(
             model_path,
             providers=["CPUExecutionProvider"]
@@ -43,9 +48,12 @@ class OnnxEmotionPredictor:
         self.output_name = self.session.get_outputs()[0].name
         self.debug_dir = Path(debug_dir)
         self.debug_dir.mkdir(parents=True, exist_ok=True)
+        self.log_top3 = log_top3
         self.debug_save_limit = 5
         self.debug_save_count = 0
 
+        self.last_roi = None
+        self.last_onnx_input_64 = None
         self.last_raw_label = None
         self.last_mapped_label = None
         self.last_confidence = None
@@ -63,6 +71,14 @@ class OnnxEmotionPredictor:
             return
         cv2.imwrite(str(self.debug_dir / filename), image)
 
+    def can_save_debug_sample(self) -> bool:
+        return self.debug_save_count < self.debug_save_limit
+
+    def save_debug_frame(self, frame_bgr) -> None:
+        if frame_bgr is None or not self.can_save_debug_sample():
+            return
+        self._save_debug_image(f"sample_{self.debug_save_count}_frame.png", frame_bgr)
+
     def _prepare_from_roi(self, face_roi, use_equalization=True):
         """
         Prepare ONNX input directly from the already prepared face ROI.
@@ -70,18 +86,17 @@ class OnnxEmotionPredictor:
         This path keeps pixel values in the 0..255 range as float32.
         """
         if face_roi is None:
-            return None, None, None, None, None
+            return None, None
 
         prepared_roi = face_roi
         gray = cv2.cvtColor(prepared_roi, cv2.COLOR_BGR2GRAY)
         if use_equalization:
             gray = cv2.equalizeHist(gray)
 
-        processed_48 = cv2.resize(gray, (48, 48), interpolation=cv2.INTER_LINEAR)
         onnx_input_64 = cv2.resize(gray, (64, 64), interpolation=cv2.INTER_LINEAR)
         nchw = np.expand_dims(np.expand_dims(onnx_input_64.astype(np.float32), axis=0), axis=0)
 
-        return nchw, processed_48, onnx_input_64, prepared_roi, prepared_roi
+        return nchw, onnx_input_64
 
     def _log_top3(self, probabilities):
         top_indices = np.argsort(probabilities)[-3:][::-1]
@@ -90,10 +105,11 @@ class OnnxEmotionPredictor:
             for idx in top_indices
         ]
         self.last_top3 = top3
-        top3_text = ", ".join(f"{label}={score:.4f}" for label, score in top3)
-        print(f"[ONNX] top3: {top3_text}")
+        if self.log_top3:
+            top3_text = ", ".join(f"{label}={score:.4f}" for label, score in top3)
+            print(f"[ONNX] top3: {top3_text}")
 
-    def predict(self, face_roi, processed_face=None, use_equalization=True):
+    def predict(self, face_roi, use_equalization=True):
         """
         Returns:
             - mapped 5-class label
@@ -101,7 +117,7 @@ class OnnxEmotionPredictor:
 
         Raw ONNX label is preserved in self.last_raw_label.
         """
-        input_tensor, processed_48, onnx_input_64, tight_roi, aligned_roi = self._prepare_from_roi(
+        input_tensor, onnx_input_64 = self._prepare_from_roi(
             face_roi,
             use_equalization=use_equalization
         )
@@ -120,22 +136,15 @@ class OnnxEmotionPredictor:
 
         self.last_scores = scores.tolist()
         self.last_probabilities = probabilities.tolist()
+        self.last_roi = face_roi.copy()
+        self.last_onnx_input_64 = onnx_input_64.copy()
         self.last_raw_label = raw_label
         self.last_mapped_label = mapped_label
         self.last_confidence = confidence
         self._log_top3(probabilities)
 
-        if self.debug_save_count < self.debug_save_limit:
+        if self.can_save_debug_sample():
             self._save_debug_image(f"sample_{self.debug_save_count}_roi.png", face_roi)
-            self._save_debug_image(f"sample_{self.debug_save_count}_roi_tight.png", tight_roi)
-            self._save_debug_image(f"sample_{self.debug_save_count}_roi_aligned.png", aligned_roi)
-            if processed_face is not None:
-                processed_face_2d = (processed_face[0, :, :, 0] * 255.0).clip(0, 255).astype(np.uint8)
-                self._save_debug_image(
-                    f"sample_{self.debug_save_count}_processed_48_from_tf.png",
-                    processed_face_2d
-                )
-            self._save_debug_image(f"sample_{self.debug_save_count}_processed_48_for_onnx.png", processed_48)
             self._save_debug_image(f"sample_{self.debug_save_count}_onnx_input_64.png", onnx_input_64)
             self.debug_save_count += 1
 

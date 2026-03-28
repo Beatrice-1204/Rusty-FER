@@ -6,21 +6,28 @@ class ImagePreprocessor:
     """
     - extragerea regiunii fetei (ROI)
     - aliniere simpla pe ochi
-    - conv grayscale
-    - redimensionare la 48x48
-    - normalizare intensitate
-    - histogram equalization
+    - crop final pentru modelul ONNX
     """
 
-    def __init__(self, target_size=48):
-        self.target_size = target_size
+    def __init__(
+        self,
+        face_padding_px=20,
+        crop_scale=0.9,
+        crop_center_y_ratio=0.46,
+    ):
+        self.face_padding_px = face_padding_px
+        self.crop_scale = crop_scale
+        self.crop_center_y_ratio = crop_center_y_ratio
 
-    def extract_face_roi(self, frame_bgr, detection, margin=20):
+    def extract_face_roi(self, frame_bgr, detection, margin=None):
         """
         Extrage bounding box-ul fetei din detectia curenta.
         """
         if frame_bgr is None or detection is None:
             return None
+
+        if margin is None:
+            margin = self.face_padding_px
 
         h, w, _ = frame_bgr.shape
         x, y, box_w, box_h = detection.bbox
@@ -35,10 +42,13 @@ class ImagePreprocessor:
 
         return frame_bgr[y_min:y_max, x_min:x_max]
 
-    def align_face_roi(self, frame_bgr, detection, margin=20):
+    def align_face_roi(self, frame_bgr, detection, margin=None):
         """
         Extrage ROI-ul si aplica o corectie simpla de rotatie folosind ochii.
         """
+        if margin is None:
+            margin = self.face_padding_px
+
         face_roi = self.extract_face_roi(frame_bgr, detection, margin=margin)
         if face_roi is None:
             return None
@@ -72,11 +82,14 @@ class ImagePreprocessor:
             borderMode=cv2.BORDER_REPLICATE
         )
 
-    def prepare_face_roi(self, frame_bgr, detection, margin=20):
+    def prepare_face_roi(self, frame_bgr, detection, margin=None):
         """
         Pipeline scurt pentru runtime:
         extragere ROI -> aliniere pe ochi -> mic crop intern pentru model.
         """
+        if margin is None:
+            margin = self.face_padding_px
+
         aligned_roi = self.align_face_roi(frame_bgr, detection, margin=margin)
         if aligned_roi is None:
             return None
@@ -85,11 +98,11 @@ class ImagePreprocessor:
         if h == 0 or w == 0:
             return aligned_roi
 
-        side = int(min(h, w) * 0.9)
+        side = int(min(h, w) * self.crop_scale)
         side = max(side, 1)
 
         center_x = w // 2
-        center_y = int(h * 0.46)
+        center_y = int(h * self.crop_center_y_ratio)
 
         x1 = max(0, center_x - side // 2)
         y1 = max(0, center_y - side // 2)
@@ -103,41 +116,12 @@ class ImagePreprocessor:
 
         return aligned_roi[y1:y2, x1:x2]
 
-    def preprocess(self, face_roi, debug=False, use_equalization=True):
-        """
-        Pasii de procesare:
-        - grayscale
-        - histogram equalization
-        - resize
-        - normalizare
-        - reshape pentru CNN
-        """
+    def get_debug_views(self, frame_bgr, face_roi, onnx_input_64):
+        if frame_bgr is None or face_roi is None or onnx_input_64 is None:
+            return None
 
-        if face_roi is None:
-            return None if not debug else (None, None)
-
-        debug_data = {}
-
-        debug_data["roi"] = face_roi.copy()
-
-        gray = cv2.cvtColor(face_roi, cv2.COLOR_BGR2GRAY)
-        debug_data["gray"] = gray.copy()
-
-        if use_equalization:
-            equalized = cv2.equalizeHist(gray)
-        else:
-            equalized = gray.copy()
-
-        debug_data["equalized"] = equalized.copy()
-
-        resized = cv2.resize(equalized, (self.target_size, self.target_size))
-        debug_data["resized_48"] = resized.copy()
-
-        normalized = resized / 255.0
-        normalized = np.expand_dims(normalized, axis=-1)
-        normalized = np.expand_dims(normalized, axis=0)
-
-        if debug:
-            return normalized, debug_data
-
-        return normalized
+        return {
+            "frame": frame_bgr.copy(),
+            "roi": face_roi.copy(),
+            "onnx_input_64": onnx_input_64.copy(),
+        }
