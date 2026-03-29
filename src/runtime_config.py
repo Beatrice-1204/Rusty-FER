@@ -5,9 +5,10 @@ from paths import project_path
 
 @dataclass(frozen=True)
 class CameraConfig:
+    backend: str = "picamera2"
     camera_index: int = 0
-    width: int = 640
-    height: int = 480
+    width: int = 800
+    height: int = 600
 
 
 @dataclass(frozen=True)
@@ -25,7 +26,7 @@ class FaceRoiConfig:
     padding_px: int = 20
     crop_scale: float = 0.9
     crop_center_y_ratio: float = 0.46
-    onnx_use_equalization: bool = False
+    onnx_use_equalization: bool = True 
 
 
 @dataclass(frozen=True)

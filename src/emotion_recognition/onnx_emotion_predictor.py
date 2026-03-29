@@ -80,24 +80,32 @@ class OnnxEmotionPredictor:
         self._save_debug_image(f"sample_{self.debug_save_count}_frame.png", frame_bgr)
 
     def _prepare_from_roi(self, face_roi, use_equalization=True):
-        """
-        Prepare ONNX input directly from the already prepared face ROI.
-        The FERPlus ONNX model expects grayscale 64x64 in NCHW layout.
-        This path keeps pixel values in the 0..255 range as float32.
-        """
+
+    #Prepare ONNX input directly from the already prepared face ROI.
+    #FERPlus ONNX v7 expects grayscale 64x64, float32, range 0..255, NCHW layout.
+
         if face_roi is None:
             return None, None
 
-        prepared_roi = face_roi
-        gray = cv2.cvtColor(prepared_roi, cv2.COLOR_BGR2GRAY)
-        if use_equalization:
-            gray = cv2.equalizeHist(gray)
+         # 1. Grayscale
+        gray = cv2.cvtColor(face_roi, cv2.COLOR_BGR2GRAY)
 
-        onnx_input_64 = cv2.resize(gray, (64, 64), interpolation=cv2.INTER_LINEAR)
-        nchw = np.expand_dims(np.expand_dims(onnx_input_64.astype(np.float32), axis=0), axis=0)
+         # 2. CLAHE in loc de equalizeHist — mai bun pentru iluminare variabila
+        if use_equalization:
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4))
+            gray = clahe.apply(gray)
+
+    # 3. INTER_AREA pentru downscaling — mai putin aliasing
+        onnx_input_64 = cv2.resize(gray, (64, 64), interpolation=cv2.INTER_AREA)
+
+    # 4. FERPlus v7 asteapta 0..255 ca float32 — pastram asta
+        nchw = np.expand_dims(
+            np.expand_dims(onnx_input_64.astype(np.float32), axis=0), axis=0
+    )
 
         return nchw, onnx_input_64
 
+        
     def _log_top3(self, probabilities):
         top_indices = np.argsort(probabilities)[-3:][::-1]
         top3 = [

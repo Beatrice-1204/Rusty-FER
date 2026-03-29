@@ -89,7 +89,7 @@ def main():
     config = RUNTIME_CONFIG
     debug_pipeline = config.logging.debug_pipeline
 
-    camera_backend = os.getenv("RUSTY_CAMERA_BACKEND", "auto")
+    camera_backend = os.getenv("RUSTY_CAMERA_BACKEND", config.camera.backend)
     camera_width = int(os.getenv("RUSTY_CAMERA_WIDTH", str(config.camera.width)))
     camera_height = int(os.getenv("RUSTY_CAMERA_HEIGHT", str(config.camera.height)))
     camera_index = int(os.getenv("RUSTY_CAMERA_INDEX", str(config.camera.camera_index)))
