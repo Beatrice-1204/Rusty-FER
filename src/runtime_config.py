@@ -68,7 +68,7 @@ class LoggingConfig:
     debug_logging: bool = False 
     draw_detection: bool = True
     show_raw_label: bool = True
-    log_top3: bool = False 
+    log_top3: bool = True 
     show_perf: bool = True
     perf_log_every_n_frames: int = 30
 
