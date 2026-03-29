@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
 
+from paths import project_path
+
 
 @dataclass(frozen=True)
 class CameraConfig:
@@ -10,7 +12,7 @@ class CameraConfig:
 
 @dataclass(frozen=True)
 class YuNetConfig:
-    model_path: str = "models/yunet/face_detection_yunet.onnx"
+    model_path: str = project_path("models", "YuNet", "face_detection_yunet.onnx")
     score_threshold: float = 0.6  # pragul de incredere pt a considera o detectie valida
     nms_threshold: float = 0.3 # pragul pentru Non-Maximum Suppression (NMS) pentru a elimina detectiile multiple ale aceleiasi fete
     top_k: int = 1
@@ -28,7 +30,7 @@ class FaceRoiConfig:
 
 @dataclass(frozen=True)
 class EmotionModelConfig:
-    model_path: str = "models/onnx/emotion-ferplus-7.onnx"
+    model_path: str = project_path("models", "ONNX", "emotion-ferplus-7.onnx")
 
 
 @dataclass(frozen=True)
