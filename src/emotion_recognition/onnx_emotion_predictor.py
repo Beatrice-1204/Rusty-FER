@@ -49,7 +49,7 @@ class OnnxEmotionPredictor:
         self.debug_dir = Path(debug_dir)
         self.debug_dir.mkdir(parents=True, exist_ok=True)
         self.log_top3 = log_top3
-        self.debug_save_limit = 5
+        self.debug_save_limit = 0
         self.debug_save_count = 0
 
         self.last_roi = None
