@@ -23,12 +23,16 @@ class CameraStream:
         height: int = 480,
         backend: str = "auto",
         warmup_seconds: float = 0.2,
+        center_crop_enabled: bool = False,
+        center_crop_scale: float = 1.0,
     ):
         self.camera_index = camera_index
         self.width = width
         self.height = height
         self.backend = backend.lower()
         self.warmup_seconds = warmup_seconds
+        self.center_crop_enabled = center_crop_enabled
+        self.center_crop_scale = center_crop_scale
         self.cap = None
         self.picam2: Optional["Picamera2"] = None
         self.active_backend: Optional[str] = None
@@ -140,6 +144,27 @@ class CameraStream:
             buffer_count=4,
         )
         self.picam2.configure(config)
+        if self.center_crop_enabled:
+            self._apply_picamera2_center_crop()
         self.picam2.start()
         time.sleep(self.warmup_seconds)
         self.active_backend = "picamera2"
+
+    def _apply_picamera2_center_crop(self) -> None:
+        if self.picam2 is None:
+            return
+
+        scale = max(0.1, min(float(self.center_crop_scale), 1.0))
+        crop_max = self.picam2.camera_properties.get("ScalerCropMaximum")
+        if crop_max is None:
+            return
+
+        sensor_x, sensor_y, sensor_width, sensor_height = crop_max
+        crop_width = int(round(sensor_width * scale))
+        crop_height = int(round(sensor_height * scale))
+        crop_x = sensor_x + (sensor_width - crop_width) // 2
+        crop_y = sensor_y + (sensor_height - crop_height) // 2
+
+        self.picam2.set_controls(
+            {"ScalerCrop": (crop_x, crop_y, crop_width, crop_height)}
+        )

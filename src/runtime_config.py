@@ -7,8 +7,10 @@ from paths import project_path
 class CameraConfig:
     backend: str = "picamera2"
     camera_index: int = 0
-    width: int = 800
-    height: int = 600
+    width: int = 640
+    height: int = 480
+    center_crop_enabled: bool = True
+    center_crop_scale: float = 0.75
 
 
 @dataclass(frozen=True)

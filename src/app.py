@@ -99,6 +99,8 @@ def main():
         width=camera_width,
         height=camera_height,
         backend=camera_backend,
+        center_crop_enabled=config.camera.center_crop_enabled,
+        center_crop_scale=config.camera.center_crop_scale,
     )
     camera.open()
 
