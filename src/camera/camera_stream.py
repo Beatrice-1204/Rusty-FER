@@ -57,7 +57,7 @@ class CameraStream:
                 return None
 
             if len(frame.shape) == 3 and frame.shape[2] == 3:
-                return cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                return frame
 
             if len(frame.shape) == 3 and frame.shape[2] == 4:
                 return cv2.cvtColor(frame, cv2.COLOR_RGBA2BGR)
