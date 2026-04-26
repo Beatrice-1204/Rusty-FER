@@ -74,10 +74,20 @@ class OnnxEmotionPredictor:
     def can_save_debug_sample(self) -> bool:
         return self.debug_save_count < self.debug_save_limit
 
-    def save_debug_frame(self, frame_bgr) -> None:
-        if frame_bgr is None or not self.can_save_debug_sample():
+    def save_debug_sample(self, frame_bgr, face_roi, onnx_input_64) -> None:
+        if (
+            frame_bgr is None
+            or face_roi is None
+            or onnx_input_64 is None
+            or not self.can_save_debug_sample()
+        ):
             return
-        self._save_debug_image(f"sample_{self.debug_save_count}_frame.png", frame_bgr)
+
+        sample_index = self.debug_save_count
+        self._save_debug_image(f"sample_{sample_index}_frame.png", frame_bgr)
+        self._save_debug_image(f"sample_{sample_index}_roi.png", face_roi)
+        self._save_debug_image(f"sample_{sample_index}_onnx_input_64.png", onnx_input_64)
+        self.debug_save_count += 1
 
     def _prepare_from_roi(self, face_roi, use_equalization=True):
 
@@ -150,10 +160,5 @@ class OnnxEmotionPredictor:
         self.last_mapped_label = mapped_label
         self.last_confidence = confidence
         self._log_top3(probabilities)
-
-        if self.can_save_debug_sample():
-            self._save_debug_image(f"sample_{self.debug_save_count}_roi.png", face_roi)
-            self._save_debug_image(f"sample_{self.debug_save_count}_onnx_input_64.png", onnx_input_64)
-            self.debug_save_count += 1
 
         return mapped_label, confidence

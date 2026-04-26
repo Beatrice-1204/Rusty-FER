@@ -220,12 +220,16 @@ def main():
 
         if face_roi is not None:
             predict_start = time.perf_counter()
-            if predictor.can_save_debug_sample():
-                predictor.save_debug_frame(frame)
             emotion_label, confidence = predictor.predict(
                 face_roi,
                 use_equalization=config.face_roi.onnx_use_equalization,
             )
+            if emotion_label is not None and predictor.can_save_debug_sample():
+                predictor.save_debug_sample(
+                    frame,
+                    predictor.last_roi,
+                    predictor.last_onnx_input_64,
+                )
             stage_times["predict"] = time.perf_counter() - predict_start
 
             top3 = getattr(predictor, "last_top3", [])
