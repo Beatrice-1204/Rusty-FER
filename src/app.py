@@ -122,6 +122,9 @@ def main():
         face_padding_px=config.face_roi.padding_px,
         crop_scale=config.face_roi.crop_scale,
         crop_center_y_ratio=config.face_roi.crop_center_y_ratio,
+        undistort_enabled=config.undistort.enabled,
+        camera_matrix=config.undistort.camera_matrix,
+        dist_coeffs=config.undistort.dist_coeffs,
     )
     predictor = OnnxEmotionPredictor(
         model_path=config.emotion_model.model_path,

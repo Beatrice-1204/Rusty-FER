@@ -14,10 +14,31 @@ class ImagePreprocessor:
         face_padding_px=20,
         crop_scale=0.9,
         crop_center_y_ratio=0.46,
+        undistort_enabled=False,
+        camera_matrix=None,
+        dist_coeffs=None,
     ):
         self.face_padding_px = face_padding_px
         self.crop_scale = crop_scale
         self.crop_center_y_ratio = crop_center_y_ratio
+        self.undistort_enabled = undistort_enabled
+        self.camera_matrix = (
+            np.array(camera_matrix, dtype=np.float32)
+            if camera_matrix is not None
+            else None
+        )
+        self.dist_coeffs = (
+            np.array(dist_coeffs, dtype=np.float32).reshape(-1, 1)
+            if dist_coeffs is not None
+            else None
+        )
+
+        if self.undistort_enabled and (
+            self.camera_matrix is None or self.dist_coeffs is None
+        ):
+            raise ValueError(
+                "Undistort is enabled, but camera_matrix or dist_coeffs is missing."
+            )
 
     def extract_face_roi(self, frame_bgr, detection, margin=None):
         """
@@ -44,7 +65,7 @@ class ImagePreprocessor:
 
     def align_face_roi(self, frame_bgr, detection, margin=None):
         """
-        Extrage ROI-ul si aplica o corectie simpla de rotatie folosind ochii.
+        Extrage ROI-ul, aplica optional undistort, apoi corectie simpla de rotatie folosind ochii.
         """
         if margin is None:
             margin = self.face_padding_px
@@ -53,14 +74,15 @@ class ImagePreprocessor:
         if face_roi is None:
             return None
 
+        x, y, _, _ = detection.bbox
+        crop_x = max(0, x - margin)
+        crop_y = max(0, y - margin)
+        face_roi = self.undistort_face_roi(face_roi, crop_x, crop_y)
+
         left_eye = getattr(detection, "left_eye", None)
         right_eye = getattr(detection, "right_eye", None)
         if left_eye is None or right_eye is None:
             return face_roi
-
-        x, y, _, _ = detection.bbox
-        crop_x = max(0, x - margin)
-        crop_y = max(0, y - margin)
 
         left_eye_px = (left_eye[0] - crop_x, left_eye[1] - crop_y)
         right_eye_px = (right_eye[0] - crop_x, right_eye[1] - crop_y)
@@ -80,6 +102,26 @@ class ImagePreprocessor:
             (face_roi.shape[1], face_roi.shape[0]),
             flags=cv2.INTER_LINEAR,
             borderMode=cv2.BORDER_REPLICATE
+        )
+
+    def undistort_face_roi(self, face_roi, crop_x, crop_y):
+        if (
+            not self.undistort_enabled
+            or self.camera_matrix is None
+            or self.dist_coeffs is None
+        ):
+            return face_roi
+
+        roi_camera_matrix = self.camera_matrix.copy()
+        roi_camera_matrix[0, 2] -= crop_x
+        roi_camera_matrix[1, 2] -= crop_y
+
+        return cv2.undistort(
+            face_roi,
+            roi_camera_matrix,
+            self.dist_coeffs,
+            None,
+            roi_camera_matrix,
         )
 
     def prepare_face_roi(self, frame_bgr, detection, margin=None):

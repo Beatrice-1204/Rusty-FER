@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Optional, Tuple
 
 from paths import project_path
 
@@ -29,6 +30,13 @@ class FaceRoiConfig:
     crop_scale: float = 0.9
     crop_center_y_ratio: float = 0.46
     onnx_use_equalization: bool = True 
+
+
+@dataclass(frozen=True)
+class UndistortConfig:
+    enabled: bool = False
+    camera_matrix: Optional[Tuple[Tuple[float, float, float], ...]] = None
+    dist_coeffs: Optional[Tuple[float, ...]] = None
 
 
 @dataclass(frozen=True)
@@ -80,6 +88,7 @@ class RuntimeConfig:
     camera: CameraConfig = field(default_factory=CameraConfig)
     yunet: YuNetConfig = field(default_factory=YuNetConfig)
     face_roi: FaceRoiConfig = field(default_factory=FaceRoiConfig)
+    undistort: UndistortConfig = field(default_factory=UndistortConfig)
     emotion_model: EmotionModelConfig = field(default_factory=EmotionModelConfig)
     smoothing: SmoothingConfig = field(default_factory=SmoothingConfig)
     face_quality: FaceQualityConfig = field(default_factory=FaceQualityConfig)
