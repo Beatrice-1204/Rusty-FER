@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 from paths import project_path
 
@@ -65,8 +65,33 @@ class StabilizationConfig:
     min_confidence: float = 0.45 # pragul min pt a fi luata in considerare o emotie noua 
     min_margin: float = 0.0  #top1-top2 
     hold_last_stable: bool = True #daca o predictie noua e slaba, se pastreaza emotia anterioara 
-    enable_voting: bool = False
-    voting_window: int = 5 # nr de predictii daca voting e activat
+    enable_voting: bool = True
+    voting_window: int = 18 # nr de predictii daca voting e activat
+    confidence_thresholds: Dict[str, float] = field(default_factory=lambda: {
+        "neutral": 0.45,
+        "happy": 0.60,
+        "surprise": 0.55,
+        "sad": 0.40,
+        "angry": 0.40,
+    })
+    min_occurrences: Dict[str, int] = field(default_factory=lambda: {
+        "neutral": 1,
+        "happy": 4,
+        "surprise": 4,
+        "sad": 6,
+        "angry": 6,
+    })
+
+
+@dataclass(frozen=True)
+class ReactionGateConfig:
+    enabled: bool = True
+    idle_seconds: float = 4.5
+    detecting_seconds: float = 3.0
+    reacting_seconds: float = 5.5
+    cooldown_seconds: float = 10.0
+    neutral_label: str = "neutral"
+    debug_logging: bool = True
 
 
 @dataclass(frozen=True)
@@ -90,6 +115,7 @@ class RuntimeConfig:
     smoothing: SmoothingConfig = field(default_factory=SmoothingConfig)
     face_quality: FaceQualityConfig = field(default_factory=FaceQualityConfig)
     stabilization: StabilizationConfig = field(default_factory=StabilizationConfig)
+    reaction_gate: ReactionGateConfig = field(default_factory=ReactionGateConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
 
 

@@ -1,32 +1,16 @@
 import time
-from collections import deque
 from typing import Optional
 
 import cv2
 import numpy as np
 
 from camera.camera_stream import CameraStream
+from emotion_recognition.emotion_stabilizer import EmotionStabilizer
 from emotion_recognition.onnx_emotion_predictor import OnnxEmotionPredictor
 from face_detection.yunet_face_detector import YuNetFaceDetection, YuNetFaceDetector
 from image_processing.image_preprocessor import ImagePreprocessor
 from runtime_config import RUNTIME_CONFIG
 from runtime_support import DetectionSmoother, FaceQualityValidator, PerfTracker
-
-
-def _should_accept_prediction(confidence: Optional[float], top3, config) -> bool:
-    if confidence is None:
-        return False
-
-    if not config.stabilization.enabled:
-        return True
-
-    top1_score = float(top3[0][1]) if len(top3) >= 1 else confidence
-    top2_score = float(top3[1][1]) if len(top3) >= 2 else 0.0
-
-    confidence_ok = top1_score >= config.stabilization.min_confidence
-    margin_ok = (top1_score - top2_score) >= config.stabilization.min_margin
-    return confidence_ok and margin_ok
-
 
 def _format_emotion_text(
     emotion_label: Optional[str],
@@ -130,7 +114,10 @@ def main():
     )
 
     perf_tracker = PerfTracker(fps_window_size=config.logging.perf_log_every_n_frames)
-    emotion_buffer = deque(maxlen=config.stabilization.voting_window)
+    emotion_stabilizer = EmotionStabilizer(
+        config.stabilization,
+        debug_logging=config.logging.debug_logging,
+    )
 
     frame_counter = 0
     last_detection: Optional[YuNetFaceDetection] = None
@@ -183,7 +170,7 @@ def main():
                 detection = None
                 last_detection = None
                 smoother.reset()
-                emotion_buffer.clear()
+                emotion_stabilizer.reset(clear_stable=False)
         else:
             quality = validator.validate(frame.shape, detection)
             if not quality.is_valid:
@@ -192,7 +179,7 @@ def main():
                 detection = None
                 last_detection = None
                 smoother.reset()
-                emotion_buffer.clear()
+                emotion_stabilizer.reset(clear_stable=False)
         stage_times["post_detect"] = time.perf_counter() - post_detect_start
 
         preprocess_start = time.perf_counter()
@@ -220,37 +207,15 @@ def main():
             stage_times["predict"] = time.perf_counter() - predict_start
 
             top3 = getattr(predictor, "last_top3", [])
-            prediction_is_confident = _should_accept_prediction(confidence, top3, config)
-
-            if emotion_label is not None and prediction_is_confident:
-                if config.stabilization.enable_voting:
-                    emotion_buffer.append((emotion_label, confidence))
-                    if len(emotion_buffer) == config.stabilization.voting_window:
-                        labels = [label for label, _ in emotion_buffer]
-                        stable_label = max(set(labels), key=labels.count)
-                        stable_conf = float(np.mean([
-                            score for label, score in emotion_buffer if label == stable_label
-                        ]))
-                        last_stable_emotion = stable_label
-                        last_stable_confidence = stable_conf
-                        last_stable_raw_label = predictor.last_raw_label
-                        emotion_buffer.clear()
-                else:
-                    last_stable_emotion = emotion_label
-                    last_stable_confidence = confidence
-                    last_stable_raw_label = predictor.last_raw_label
-
-            elif emotion_label is not None:
-                emotion_buffer.clear()
-                if config.logging.debug_logging:
-                    top1_score = float(top3[0][1]) if len(top3) >= 1 else 0.0
-                    top2_score = float(top3[1][1]) if len(top3) >= 2 else 0.0
-                    print(
-                        "[STABLE] reject",
-                        f"label={predictor.last_raw_label}",
-                        f"conf={top1_score:.3f}",
-                        f"margin={(top1_score - top2_score):.3f}",
-                    )
+            stable_result = emotion_stabilizer.update(
+                emotion_label,
+                confidence,
+                raw_label=predictor.last_raw_label,
+                top3=top3,
+            )
+            last_stable_emotion = stable_result.emotion
+            last_stable_confidence = stable_result.confidence
+            last_stable_raw_label = stable_result.raw_label
 
             display_emotion = last_stable_emotion
             display_confidence = last_stable_confidence
