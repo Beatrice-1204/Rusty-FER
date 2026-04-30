@@ -15,6 +15,37 @@ class StableEmotionResult:
     reason: Optional[str] = None
 
 
+@dataclass(frozen=True)
+class StabilizationSummary:
+    dominant_emotion: Optional[str]
+    selected_emotion: Optional[str]
+    count: int
+    required: int
+    average_confidence: Optional[float]
+    threshold: Optional[float]
+    accepted: bool
+    reason: str
+    total_predictions: int
+
+    def to_log_parts(self) -> List[str]:
+        avg_conf = (
+            "None"
+            if self.average_confidence is None
+            else f"{self.average_confidence:.3f}"
+        )
+        threshold = "None" if self.threshold is None else f"{self.threshold:.3f}"
+        return [
+            f"dominant={self.dominant_emotion}",
+            f"selected={self.selected_emotion}",
+            f"count={self.count}/{self.total_predictions}",
+            f"required={self.required}",
+            f"avg_conf={avg_conf}",
+            f"threshold={threshold}",
+            f"accepted={self.accepted}",
+            f"reason={self.reason}",
+        ]
+
+
 class EmotionStabilizer:
     def __init__(self, config, debug_logging: bool = False):
         self.config = config
@@ -30,6 +61,87 @@ class EmotionStabilizer:
             self._last_emotion = None
             self._last_confidence = None
             self._last_raw_label = None
+
+    def summarize(self, neutral_label: str = "neutral") -> StabilizationSummary:
+        if not self._predictions:
+            return StabilizationSummary(
+                dominant_emotion=None,
+                selected_emotion=None,
+                count=0,
+                required=1,
+                average_confidence=None,
+                threshold=None,
+                accepted=False,
+                reason="insufficient_occurrences",
+                total_predictions=0,
+            )
+
+        counts = Counter(label for label, _, _ in self._predictions)
+        dominant_label, dominant_count = counts.most_common(1)[0]
+        dominant_scores = [
+            score for label, score, _ in self._predictions if label == dominant_label
+        ]
+        average_confidence = sum(dominant_scores) / len(dominant_scores)
+        required = self._min_occurrences(dominant_label)
+        threshold = self._confidence_threshold(dominant_label)
+        grouped_scores: Dict[str, List[float]] = defaultdict(list)
+        for label, score, _ in self._predictions:
+            grouped_scores[label].append(score)
+
+        accepted_candidates = []
+        for label, scores in grouped_scores.items():
+            occurrences = len(scores)
+            candidate_average = sum(scores) / occurrences
+            if (
+                occurrences >= self._min_occurrences(label)
+                and candidate_average >= self._confidence_threshold(label)
+            ):
+                accepted_candidates.append((label, occurrences, candidate_average))
+
+        active_candidates = [
+            candidate for candidate in accepted_candidates if candidate[0] != neutral_label
+        ]
+        if active_candidates:
+            selected_label = max(
+                active_candidates,
+                key=lambda candidate: (candidate[1], candidate[2]),
+            )[0]
+            return StabilizationSummary(
+                dominant_emotion=dominant_label,
+                selected_emotion=selected_label,
+                count=dominant_count,
+                required=required,
+                average_confidence=average_confidence,
+                threshold=threshold,
+                accepted=True,
+                reason="accepted",
+                total_predictions=len(self._predictions),
+            )
+
+        if dominant_label == neutral_label:
+            accepted = False
+            reason = "neutral_dominant"
+        elif dominant_count < required:
+            accepted = False
+            reason = "insufficient_occurrences"
+        elif average_confidence < threshold:
+            accepted = False
+            reason = "below_threshold"
+        else:
+            accepted = True
+            reason = "accepted"
+
+        return StabilizationSummary(
+            dominant_emotion=dominant_label,
+            selected_emotion=None,
+            count=dominant_count,
+            required=required,
+            average_confidence=average_confidence,
+            threshold=threshold,
+            accepted=accepted,
+            reason=reason,
+            total_predictions=len(self._predictions),
+        )
 
     def update(
         self,
