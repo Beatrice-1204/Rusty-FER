@@ -10,6 +10,7 @@ from emotion_recognition.emotion_stabilizer import EmotionStabilizer
 from emotion_recognition.onnx_emotion_predictor import OnnxEmotionPredictor
 from face_detection.yunet_face_detector import YuNetFaceDetection, YuNetFaceDetector
 from image_processing.image_preprocessor import ImagePreprocessor
+from reactions.reaction_gate import ReactionGate
 from runtime_config import RUNTIME_CONFIG
 from runtime_support import DetectionSmoother, FaceQualityValidator, PerfTracker
 
@@ -134,6 +135,10 @@ def main():
         config.stabilization,
         debug_logging=config.logging.debug_logging,
     )
+    reaction_gate = ReactionGate(
+        config.reaction_gate,
+        debug_logging=config.reaction_gate.debug_logging,
+    )
 
     frame_counter = 0
     last_detection: Optional[YuNetFaceDetection] = None
@@ -186,7 +191,11 @@ def main():
                 detection = None
                 last_detection = None
                 smoother.reset()
-                emotion_stabilizer.reset(clear_stable=False)
+                if reaction_gate.is_detecting():
+                    emotion_stabilizer.reset(clear_stable=True)
+                    last_stable_emotion = None
+                    last_stable_confidence = None
+                    last_stable_raw_label = None
         else:
             quality = validator.validate(frame.shape, detection)
             if not quality.is_valid:
@@ -195,7 +204,11 @@ def main():
                 detection = None
                 last_detection = None
                 smoother.reset()
-                emotion_stabilizer.reset(clear_stable=False)
+                if reaction_gate.is_detecting():
+                    emotion_stabilizer.reset(clear_stable=True)
+                    last_stable_emotion = None
+                    last_stable_confidence = None
+                    last_stable_raw_label = None
         stage_times["post_detect"] = time.perf_counter() - post_detect_start
 
         preprocess_start = time.perf_counter()
@@ -207,8 +220,17 @@ def main():
         display_raw_label = last_stable_raw_label if config.logging.show_raw_label else None
         show_raw_label = False
         debug_images = None
+        reaction_emotion: Optional[str] = None
 
-        if face_roi is not None:
+        if not reaction_gate.is_detecting():
+            reaction_gate.update(None)
+            if reaction_gate.is_detecting():
+                emotion_stabilizer.reset(clear_stable=True)
+                last_stable_emotion = None
+                last_stable_confidence = None
+                last_stable_raw_label = None
+
+        if reaction_gate.is_detecting() and face_roi is not None:
             predict_start = time.perf_counter()
             emotion_label, confidence = predictor.predict(
                 face_roi,
@@ -232,6 +254,12 @@ def main():
             last_stable_emotion = stable_result.emotion
             last_stable_confidence = stable_result.confidence
             last_stable_raw_label = stable_result.raw_label
+            if (
+                stable_result.reason is not None
+                and stable_result.reason.startswith("stable_window")
+                and stable_result.emotion != config.reaction_gate.neutral_label
+            ):
+                reaction_emotion = stable_result.emotion
 
             display_emotion = last_stable_emotion
             display_confidence = last_stable_confidence
@@ -245,6 +273,23 @@ def main():
                 )
         else:
             stage_times["predict"] = 0.0
+
+        if reaction_gate.is_detecting():
+            should_log_summary = reaction_gate.detecting_has_elapsed()
+            summary = None
+            if should_log_summary:
+                summary = emotion_stabilizer.summarize(
+                    neutral_label=config.reaction_gate.neutral_label
+                )
+                print("[REACTION] detecting_summary", *summary.to_log_parts())
+
+            triggered_emotion = reaction_gate.update(reaction_emotion)
+            if triggered_emotion is not None:
+                print(f"[REACTION] trigger emotion={triggered_emotion}")
+            elif should_log_summary and summary is not None:
+                print("[REACTION] no_trigger", *summary.to_log_parts())
+                if reaction_gate.is_detecting():
+                    reaction_gate.restart_detecting_window(reason=summary.reason)
 
         text = _format_emotion_text(
             display_emotion,
