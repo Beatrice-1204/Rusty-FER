@@ -101,6 +101,7 @@ class ReactionGateConfig:
 class LoggingConfig:
     debug_pipeline: bool = False #arata imaginile intermediare
     debug_logging: bool = False   
+    show_camera_window: bool = False
     draw_detection: bool = True
     show_raw_label: bool = True
     log_top3: bool = True 
