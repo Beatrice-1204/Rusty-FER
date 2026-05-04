@@ -9,7 +9,10 @@ from emotion_recognition.emotion_stabilizer import EmotionStabilizer
 from emotion_recognition.onnx_emotion_predictor import OnnxEmotionPredictor
 from face_detection.yunet_face_detector import YuNetFaceDetection, YuNetFaceDetector
 from image_processing.image_preprocessor import ImagePreprocessor
-from reactions.reaction_gate import ReactionGate
+from reactions.display_controller import DisplayController
+from reactions.reaction_config import ReactionDisplayConfig
+from reactions.reaction_gate import ReactionGate, ReactionGateState
+from reactions.reaction_manager import ReactionManager
 from runtime_config import RUNTIME_CONFIG
 from runtime_support import DetectionSmoother, FaceQualityValidator, PerfTracker
 
@@ -71,7 +74,8 @@ def _log_perf(perf_tracker: PerfTracker) -> None:
 
 def main():
     config = RUNTIME_CONFIG
-    debug_pipeline = config.logging.debug_pipeline
+    show_camera_window = config.logging.show_camera_window
+    debug_pipeline = config.logging.debug_pipeline and show_camera_window
 
     camera = CameraStream(
         camera_index=config.camera.camera_index,
@@ -123,6 +127,9 @@ def main():
         config.reaction_gate,
         debug_logging=config.reaction_gate.debug_logging,
     )
+    reaction_display_config = ReactionDisplayConfig()
+    reaction_manager = ReactionManager(DisplayController(reaction_display_config))
+    reaction_manager.handle(reaction_display_config.idle_emotion)
 
     frame_counter = 0
     last_detection: Optional[YuNetFaceDetection] = None
@@ -130,7 +137,8 @@ def main():
     last_stable_confidence: Optional[float] = None
     last_stable_raw_label: Optional[str] = None
 
-    cv2.namedWindow("Rusty - Emotion Recognition")
+    if show_camera_window:
+        cv2.namedWindow("Rusty - Emotion Recognition")
 
     while True:
         stage_times = {
@@ -205,6 +213,7 @@ def main():
         show_raw_label = False
         debug_images = None
         reaction_emotion: Optional[str] = None
+        previous_gate_state = reaction_gate.state
 
         if not reaction_gate.is_detecting():
             reaction_gate.update(None)
@@ -270,10 +279,17 @@ def main():
             triggered_emotion = reaction_gate.update(reaction_emotion)
             if triggered_emotion is not None:
                 print(f"[REACTION] trigger emotion={triggered_emotion}")
+                reaction_manager.handle(triggered_emotion)
             elif should_log_summary and summary is not None:
                 print("[REACTION] no_trigger", *summary.to_log_parts())
                 if reaction_gate.is_detecting():
                     reaction_gate.restart_detecting_window(reason=summary.reason)
+
+        if (
+            previous_gate_state == ReactionGateState.COOLDOWN
+            and reaction_gate.state == ReactionGateState.IDLE
+        ):
+            reaction_manager.handle(reaction_display_config.idle_emotion)
 
         text = _format_emotion_text(
             display_emotion,
@@ -286,16 +302,18 @@ def main():
         if config.logging.draw_detection:
             face_detector.draw(frame, detection)
 
-        cv2.imshow("Rusty - Emotion Recognition", frame)
+        if show_camera_window:
+            cv2.imshow("Rusty - Emotion Recognition", frame)
         if debug_pipeline and debug_images is not None:
             _show_debug_pipeline(debug_images)
 
-        key = cv2.waitKey(1) & 0xFF
-        if key in (ord("q"), 27):
-            break
-        if key == ord("d"):
-            debug_pipeline = not debug_pipeline
-            print("Debug mode:", debug_pipeline)
+        if show_camera_window:
+            key = cv2.waitKey(1) & 0xFF
+            if key in (ord("q"), 27):
+                break
+            if key == ord("d"):
+                debug_pipeline = not debug_pipeline
+                print("Debug mode:", debug_pipeline)
 
         stage_times["total"] = time.perf_counter() - loop_start
         perf_tracker.record(stage_times)
@@ -308,6 +326,7 @@ def main():
             _log_perf(perf_tracker)
 
     camera.release()
+    reaction_manager.close()
     cv2.destroyAllWindows()
 
 
