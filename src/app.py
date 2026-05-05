@@ -151,6 +151,9 @@ def main():
         }
         loop_start = time.perf_counter()
 
+        if not reaction_manager.update():
+            break
+
         capture_start = time.perf_counter()
         frame = camera.read()
         stage_times["capture"] = time.perf_counter() - capture_start

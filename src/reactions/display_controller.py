@@ -32,6 +32,9 @@ class DisplayController:
         self._draw_image(image)
         self._current_emotion = selected_emotion
 
+    def update(self) -> bool:
+        return self._pump_events()
+
     def close(self) -> None:
         if self._pygame is not None:
             self._pygame.quit()
@@ -89,7 +92,11 @@ class DisplayController:
         )
         return scaled_image, position
 
-    def _pump_events(self) -> None:
+    def _pump_events(self) -> bool:
         for event in self._pygame.event.get():
             if event.type == self._pygame.QUIT:
-                self.close()
+                return False
+            if event.type == self._pygame.KEYDOWN:
+                if event.key in (self._pygame.K_q, self._pygame.K_ESCAPE):
+                    return False
+        return True
