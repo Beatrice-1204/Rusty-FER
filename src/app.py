@@ -10,8 +10,9 @@ from emotion_recognition.emotion_stabilizer import EmotionStabilizer
 from emotion_recognition.onnx_emotion_predictor import OnnxEmotionPredictor
 from face_detection.yunet_face_detector import YuNetFaceDetection, YuNetFaceDetector
 from image_processing.image_preprocessor import ImagePreprocessor
+from reactions.audio_controller import AudioController
 from reactions.display_controller import DisplayController
-from reactions.reaction_config import ReactionDisplayConfig
+from reactions.reaction_config import ReactionAudioConfig, ReactionDisplayConfig
 from reactions.reaction_gate import ReactionGate, ReactionGateState
 from reactions.reaction_manager import ReactionManager
 from runtime_config import RUNTIME_CONFIG
@@ -144,8 +145,13 @@ def main():
         debug_logging=config.reaction_gate.debug_logging,
     )
     reaction_display_config = ReactionDisplayConfig()
-    reaction_manager = ReactionManager(DisplayController(reaction_display_config))
+    reaction_audio_config = ReactionAudioConfig()
+    reaction_manager = ReactionManager(
+        DisplayController(reaction_display_config),
+        AudioController(reaction_audio_config),
+    )
     reaction_manager.handle(reaction_display_config.idle_emotion)
+    reaction_manager.play_startup()
 
     frame_counter = 0
     last_detection: Optional[YuNetFaceDetection] = None

@@ -89,10 +89,11 @@ class StabilizationConfig:
 @dataclass(frozen=True)
 class ReactionGateConfig:
     enabled: bool = True
-    idle_seconds: float = 3.0
-    detecting_seconds: float = 3.0
+    initial_idle_seconds: float = 4.0
+    idle_seconds: float = 1.5
+    detecting_seconds: float = 2.0
     reacting_seconds: float = 3.0
-    cooldown_seconds: float = 5.0
+    cooldown_seconds: float = 3.0
     neutral_label: str = "neutral"
     debug_logging: bool = True
 
@@ -101,7 +102,7 @@ class ReactionGateConfig:
 class LoggingConfig:
     debug_pipeline: bool = False #arata imaginile intermediare
     debug_logging: bool = False   
-    show_camera_window: bool = False
+    show_camera_window: bool = True 
     draw_detection: bool = True
     show_raw_label: bool = True
     log_top3: bool = True 
