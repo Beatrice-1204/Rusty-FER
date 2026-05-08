@@ -25,6 +25,7 @@ class ReactionGate:
         self._reaction_emotion: Optional[str] = None
         self._reaction_was_emitted = False
         self._candidate_emotion: Optional[str] = None
+        self._initial_idle_pending = True
 
     def reset(self) -> None:
         self.state = ReactionGateState.IDLE
@@ -32,6 +33,7 @@ class ReactionGate:
         self._reaction_emotion = None
         self._reaction_was_emitted = False
         self._candidate_emotion = None
+        self._initial_idle_pending = True
         self._log("reset", f"state={self.state.value}")
 
     def update(self, stable_emotion: Optional[str]) -> Optional[str]:
@@ -68,9 +70,16 @@ class ReactionGate:
 
     def _update_idle(self, now: float) -> Optional[str]:
         elapsed = now - self._state_started_at
-        if elapsed >= self.config.idle_seconds:
+        idle_seconds = self._current_idle_seconds()
+        if elapsed >= idle_seconds:
+            self._initial_idle_pending = False
             self._transition(ReactionGateState.DETECTING, now)
         return None
+
+    def _current_idle_seconds(self) -> float:
+        if self._initial_idle_pending:
+            return getattr(self.config, "initial_idle_seconds", self.config.idle_seconds)
+        return self.config.idle_seconds
 
     def _update_detecting(
         self,

@@ -12,6 +12,13 @@ REACTION_IMAGE_NAMES = {
     "surprise": "surprise.png",
 }
 
+REACTION_AUDIO_NAMES = {
+    "happy": "happy.wav",
+    "sad": "sad.wav",
+    "angry": "angry.wav",
+    "surprise": "surprise.wav",
+}
+
 
 @dataclass(frozen=True)
 class ReactionDisplayConfig:
@@ -19,4 +26,13 @@ class ReactionDisplayConfig:
     image_names: Dict[str, str] = field(default_factory=lambda: dict(REACTION_IMAGE_NAMES))
     idle_emotion: str = "idle"
     fullscreen: bool = True
+
+
+@dataclass(frozen=True)
+class ReactionAudioConfig:
+    audio_dir: str = project_path("assets", "reactions", "audio")
+    audio_names: Dict[str, str] = field(default_factory=lambda: dict(REACTION_AUDIO_NAMES))
+    idle_emotion: str = "idle"
+    startup_audio_name: str = "startup.wav"
+    play_startup_audio: bool = True
 
