@@ -5,6 +5,11 @@ from paths import project_path
 
 
 @dataclass(frozen=True)
+class AppConfig:
+    max_runtime_seconds: Optional[float] = None
+
+
+@dataclass(frozen=True)
 class CameraConfig:
     backend: str = "picamera2"
     camera_index: int = 0
@@ -112,6 +117,7 @@ class LoggingConfig:
 
 @dataclass(frozen=True)
 class RuntimeConfig:
+    app: AppConfig = field(default_factory=AppConfig)
     camera: CameraConfig = field(default_factory=CameraConfig)
     yunet: YuNetConfig = field(default_factory=YuNetConfig)
     face_roi: FaceRoiConfig = field(default_factory=FaceRoiConfig)
