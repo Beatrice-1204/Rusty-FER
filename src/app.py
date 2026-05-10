@@ -77,6 +77,7 @@ def main():
     config = RUNTIME_CONFIG
     show_camera_window = config.logging.show_camera_window
     debug_pipeline = config.logging.debug_pipeline and show_camera_window
+    app_started_at = time.perf_counter()
 
     camera = CameraStream(
         camera_index=config.camera.camera_index,
@@ -156,6 +157,13 @@ def main():
             "total": 0.0,
         }
         loop_start = time.perf_counter()
+
+        if (
+            config.app.max_runtime_seconds is not None
+            and loop_start - app_started_at >= config.app.max_runtime_seconds
+        ):
+            print("[APP] max_runtime reached, shutting down")
+            break
 
         if not reaction_manager.update():
             break
