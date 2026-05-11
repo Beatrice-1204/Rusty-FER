@@ -16,6 +16,7 @@ from reactions.reaction_gate import ReactionGate, ReactionGateState
 from reactions.reaction_manager import ReactionManager
 from runtime_config import RUNTIME_CONFIG
 from runtime_support import DetectionSmoother, FaceQualityValidator, PerfTracker
+from tracking import create_pan_tilt_controller
 
 def _format_emotion_text(
     emotion_label: Optional[str],
@@ -135,6 +136,7 @@ def main():
         DisplayController(reaction_display_config),
         AudioController(reaction_audio_config),
     )
+    pan_tilt_controller = create_pan_tilt_controller(config.pan_tilt)
     reaction_manager.handle(reaction_display_config.idle_emotion)
     reaction_manager.play_startup()
 
@@ -219,6 +221,9 @@ def main():
                     last_stable_confidence = None
                     last_stable_raw_label = None
         stage_times["post_detect"] = time.perf_counter() - post_detect_start
+
+        if detection is not None:
+            pan_tilt_controller.update(detection.bbox, frame.shape)
 
         preprocess_start = time.perf_counter()
         face_roi = preprocessor.prepare_face_roi(frame, detection)
@@ -343,6 +348,7 @@ def main():
             _log_perf(perf_tracker)
 
     camera.release()
+    pan_tilt_controller.close()
     reaction_manager.close()
     cv2.destroyAllWindows()
 
