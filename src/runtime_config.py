@@ -45,6 +45,26 @@ class UndistortConfig:
 
 
 @dataclass(frozen=True)
+class PanTiltConfig:
+    enabled: bool = True 
+    backend: str = "mock"
+    pan_channel: int = 0
+    tilt_channel: int = 1
+    invert_pan: bool = False
+    invert_tilt: bool = False
+    update_every_n_frames: int = 3
+    dead_zone_x: int = 40
+    dead_zone_y: int = 35
+    pan_start: float = 90.0
+    tilt_start: float = 90.0
+    pan_min: float = 0.0
+    pan_max: float = 180.0
+    tilt_min: float = 0.0
+    tilt_max: float = 180.0
+    step_degrees: float = 2.0
+
+
+@dataclass(frozen=True)
 class EmotionModelConfig:
     model_path: str = project_path("models", "ONNX", "emotion-ferplus-7.onnx")
 
@@ -122,6 +142,7 @@ class RuntimeConfig:
     yunet: YuNetConfig = field(default_factory=YuNetConfig)
     face_roi: FaceRoiConfig = field(default_factory=FaceRoiConfig)
     undistort: UndistortConfig = field(default_factory=UndistortConfig)
+    pan_tilt: PanTiltConfig = field(default_factory=PanTiltConfig)
     emotion_model: EmotionModelConfig = field(default_factory=EmotionModelConfig)
     smoothing: SmoothingConfig = field(default_factory=SmoothingConfig)
     face_quality: FaceQualityConfig = field(default_factory=FaceQualityConfig)
