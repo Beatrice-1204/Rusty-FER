@@ -18,6 +18,13 @@ class ReactionManager:
         if self.audio_controller is not None:
             self.audio_controller.play(emotion)
 
+    def update(self) -> bool:
+        for controller in (self.display_controller, self.audio_controller):
+            update = getattr(controller, "update", None)
+            if update is not None and update() is False:
+                return False
+        return True
+
     def play_startup(self) -> None:
         if self.audio_controller is not None:
             self.audio_controller.play_startup()
