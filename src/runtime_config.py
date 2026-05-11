@@ -46,7 +46,7 @@ class UndistortConfig:
 
 @dataclass(frozen=True)
 class PanTiltConfig:
-    enabled: bool = True 
+    enabled: bool = False  
     backend: str = "mock"
     pan_channel: int = 0
     tilt_channel: int = 1

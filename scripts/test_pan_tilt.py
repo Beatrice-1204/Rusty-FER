@@ -13,11 +13,16 @@ from runtime_config import RUNTIME_CONFIG
 from tracking import create_pan_tilt_controller
 
 
-def _mock_config(update_every_n_frames: int, invert_pan: bool, invert_tilt: bool):
+def _test_config(
+    backend: str,
+    update_every_n_frames: int,
+    invert_pan: bool,
+    invert_tilt: bool,
+):
     return replace(
         RUNTIME_CONFIG.pan_tilt,
         enabled=True,
-        backend="mock",
+        backend=backend,
         update_every_n_frames=update_every_n_frames,
         invert_pan=invert_pan,
         invert_tilt=invert_tilt,
@@ -37,7 +42,7 @@ def run_simulation(args) -> None:
     ]
 
     controller = create_pan_tilt_controller(
-        _mock_config(args.update_every, args.invert_pan, args.invert_tilt)
+        _test_config(args.backend, args.update_every, args.invert_pan, args.invert_tilt)
     )
     try:
         for index in range(args.frames):
@@ -56,7 +61,7 @@ def run_camera(args) -> None:
 
     config = RUNTIME_CONFIG
     controller = create_pan_tilt_controller(
-        _mock_config(args.update_every, args.invert_pan, args.invert_tilt)
+        _test_config(args.backend, args.update_every, args.invert_pan, args.invert_tilt)
     )
     detector = YuNetFaceDetector(
         model_path=config.yunet.model_path,
@@ -128,7 +133,7 @@ def _show_frame_and_should_quit(cv2, frame) -> bool:
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Test pan-tilt face tracking in mock mode, without the main app."
+        description="Test pan-tilt face tracking without the main app."
     )
     parser.add_argument(
         "--mode",
@@ -138,6 +143,12 @@ def parse_args():
     )
     parser.add_argument("--frames", type=int, default=30)
     parser.add_argument("--delay", type=float, default=0.15)
+    parser.add_argument(
+        "--backend",
+        choices=("mock", "arducam"),
+        default="mock",
+        help="mock is safe on laptop; arducam drives the real Raspberry Pi HAT.",
+    )
     parser.add_argument("--update-every", type=int, default=1)
     parser.add_argument("--invert-pan", action="store_true")
     parser.add_argument("--invert-tilt", action="store_true")
