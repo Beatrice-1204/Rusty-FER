@@ -27,6 +27,8 @@ class MockPanTiltController:
             step_degrees=config.step_degrees,
             invert_pan=config.invert_pan,
             invert_tilt=config.invert_tilt,
+            error_smoothing_alpha=config.error_smoothing_alpha,
+            min_move_updates=config.min_move_updates,
         )
 
         if not log_startup:
