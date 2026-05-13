@@ -165,208 +165,210 @@ def main():
     if show_camera_window:
         cv2.namedWindow("Rusty - Emotion Recognition")
 
-    while True:
-        stage_times = {
-            "capture": 0.0,
-            "detect": 0.0,
-            "post_detect": 0.0,
-            "preprocess": 0.0,
-            "predict": 0.0,
-            "total": 0.0,
-        }
-        loop_start = time.perf_counter()
+    try:
+        while True:
+            stage_times = {
+                "capture": 0.0,
+                "detect": 0.0,
+                "post_detect": 0.0,
+                "preprocess": 0.0,
+                "predict": 0.0,
+                "total": 0.0,
+            }
+            loop_start = time.perf_counter()
 
-        if (
-            config.app.max_runtime_seconds is not None
-            and loop_start - app_started_at >= config.app.max_runtime_seconds
-        ):
-            print("[APP] max_runtime reached, shutting down")
-            break
-
-        if not reaction_manager.update():
-            break
-
-        capture_start = time.perf_counter()
-        frame = camera.read()
-        stage_times["capture"] = time.perf_counter() - capture_start
-        if frame is None:
-            print("Eroare citire frame.")
-            break
-
-        detect_start = time.perf_counter()
-        should_detect = (
-            last_detection is None
-            or frame_counter % config.yunet.detect_every_n_frames == 0
-        )
-        raw_detection = face_detector.detect_one(frame) if should_detect else last_detection
-        stage_times["detect"] = time.perf_counter() - detect_start
-
-        post_detect_start = time.perf_counter()
-        detection = raw_detection
-        if should_detect:
-            if config.smoothing.enabled:
-                detection = smoother.smooth(raw_detection)
-            else:
-                detection = raw_detection
-
-            quality = validator.validate(frame.shape, detection)
-            if quality.is_valid:
-                last_detection = detection
-            else:
-                if config.logging.debug_logging:
-                    print(f"[FACE] reject reason={quality.reason}")
-                detection = None
-                last_detection = None
-                smoother.reset()
-                if reaction_gate.is_detecting():
-                    emotion_stabilizer.reset(clear_stable=True)
-                    last_stable_emotion = None
-                    last_stable_confidence = None
-                    last_stable_raw_label = None
-        else:
-            quality = validator.validate(frame.shape, detection)
-            if not quality.is_valid:
-                if config.logging.debug_logging:
-                    print(f"[FACE] reuse reject reason={quality.reason}")
-                detection = None
-                last_detection = None
-                smoother.reset()
-                if reaction_gate.is_detecting():
-                    emotion_stabilizer.reset(clear_stable=True)
-                    last_stable_emotion = None
-                    last_stable_confidence = None
-                    last_stable_raw_label = None
-        stage_times["post_detect"] = time.perf_counter() - post_detect_start
-
-        if detection is not None:
-            pan_tilt_controller.update(detection.bbox, frame.shape)
-
-        preprocess_start = time.perf_counter()
-        face_roi = preprocessor.prepare_face_roi(frame, detection)
-        stage_times["preprocess"] = time.perf_counter() - preprocess_start
-
-        display_emotion = last_stable_emotion if config.stabilization.hold_last_stable else None
-        display_confidence = last_stable_confidence if config.stabilization.hold_last_stable else None
-        display_raw_label = last_stable_raw_label if config.logging.show_raw_label else None
-        show_raw_label = False
-        debug_images = None
-        reaction_emotion: Optional[str] = None
-        previous_gate_state = reaction_gate.state
-
-        if not reaction_gate.is_detecting():
-            reaction_gate.update(None)
-            if reaction_gate.is_detecting():
-                emotion_stabilizer.reset(clear_stable=True)
-                last_stable_emotion = None
-                last_stable_confidence = None
-                last_stable_raw_label = None
-
-        if reaction_gate.is_detecting() and face_roi is not None:
-            predict_start = time.perf_counter()
-            emotion_label, confidence = predictor.predict(
-                face_roi,
-                use_equalization=config.face_roi.onnx_use_equalization,
-            )
-            if emotion_label is not None and predictor.can_save_debug_sample():
-                predictor.save_debug_sample(
-                    frame,
-                    predictor.last_roi,
-                    predictor.last_onnx_input_64,
-                )
-            stage_times["predict"] = time.perf_counter() - predict_start
-
-            top3 = getattr(predictor, "last_top3", [])
-            stable_result = emotion_stabilizer.update(
-                emotion_label,
-                confidence,
-                raw_label=predictor.last_raw_label,
-                top3=top3,
-            )
-            last_stable_emotion = stable_result.emotion
-            last_stable_confidence = stable_result.confidence
-            last_stable_raw_label = stable_result.raw_label
             if (
-                stable_result.reason is not None
-                and stable_result.reason.startswith("stable_window")
-                and stable_result.emotion != config.reaction_gate.neutral_label
+                config.app.max_runtime_seconds is not None
+                and loop_start - app_started_at >= config.app.max_runtime_seconds
             ):
-                reaction_emotion = stable_result.emotion
-
-            display_emotion = last_stable_emotion
-            display_confidence = last_stable_confidence
-            display_raw_label = last_stable_raw_label
-            show_raw_label = config.logging.show_raw_label and display_emotion is not None
-            if debug_pipeline:
-                debug_images = preprocessor.get_debug_views(
-                    frame,
-                    predictor.last_roi,
-                    predictor.last_onnx_input_64,
-                )
-        else:
-            stage_times["predict"] = 0.0
-
-        if reaction_gate.is_detecting():
-            should_log_summary = reaction_gate.detecting_has_elapsed()
-            summary = None
-            if should_log_summary:
-                summary = emotion_stabilizer.summarize(
-                    neutral_label=config.reaction_gate.neutral_label
-                )
-                print("[REACTION] detecting_summary", *summary.to_log_parts())
-
-            triggered_emotion = reaction_gate.update(reaction_emotion)
-            if triggered_emotion is not None:
-                print(f"[REACTION] trigger emotion={triggered_emotion}")
-                reaction_manager.handle(triggered_emotion)
-            elif should_log_summary and summary is not None:
-                print("[REACTION] no_trigger", *summary.to_log_parts())
-                if reaction_gate.is_detecting():
-                    reaction_gate.restart_detecting_window(reason=summary.reason)
-
-        if (
-            previous_gate_state == ReactionGateState.COOLDOWN
-            and reaction_gate.state == ReactionGateState.IDLE
-        ):
-            reaction_manager.handle(reaction_display_config.idle_emotion)
-
-        text = _format_emotion_text(
-            display_emotion,
-            display_confidence,
-            display_raw_label,
-            show_raw_label,
-        )
-        _draw_emotion_text(frame, text)
-
-        if config.logging.draw_detection:
-            face_detector.draw(frame, detection)
-
-        if show_camera_window:
-            cv2.imshow("Rusty - Emotion Recognition", frame)
-        if debug_pipeline and debug_images is not None:
-            _show_debug_pipeline(debug_images)
-
-        if show_camera_window:
-            key = cv2.waitKey(1) & 0xFF
-            if key in (ord("q"), 27):
+                print("[APP] max_runtime reached, shutting down")
                 break
-            if key == ord("d"):
-                debug_pipeline = not debug_pipeline
-                print("Debug mode:", debug_pipeline)
 
-        stage_times["total"] = time.perf_counter() - loop_start
-        perf_tracker.record(stage_times)
-        frame_counter += 1
+            if not reaction_manager.update():
+                break
 
-        if (
-            config.logging.show_perf
-            and perf_tracker.frame_count % config.logging.perf_log_every_n_frames == 0
-        ):
-            _log_perf(perf_tracker)
+            capture_start = time.perf_counter()
+            frame = camera.read()
+            stage_times["capture"] = time.perf_counter() - capture_start
+            if frame is None:
+                print("Eroare citire frame.")
+                break
 
-    camera.release()
-    pan_tilt_controller.close()
-    reaction_manager.close()
-    cv2.destroyAllWindows()
+            detect_start = time.perf_counter()
+            should_detect = (
+                last_detection is None
+                or frame_counter % config.yunet.detect_every_n_frames == 0
+            )
+            raw_detection = face_detector.detect_one(frame) if should_detect else last_detection
+            stage_times["detect"] = time.perf_counter() - detect_start
+
+            post_detect_start = time.perf_counter()
+            detection = raw_detection
+            if should_detect:
+                if config.smoothing.enabled:
+                    detection = smoother.smooth(raw_detection)
+                else:
+                    detection = raw_detection
+
+                quality = validator.validate(frame.shape, detection)
+                if quality.is_valid:
+                    last_detection = detection
+                else:
+                    if config.logging.debug_logging:
+                        print(f"[FACE] reject reason={quality.reason}")
+                    detection = None
+                    last_detection = None
+                    smoother.reset()
+                    if reaction_gate.is_detecting():
+                        emotion_stabilizer.reset(clear_stable=True)
+                        last_stable_emotion = None
+                        last_stable_confidence = None
+                        last_stable_raw_label = None
+            else:
+                quality = validator.validate(frame.shape, detection)
+                if not quality.is_valid:
+                    if config.logging.debug_logging:
+                        print(f"[FACE] reuse reject reason={quality.reason}")
+                    detection = None
+                    last_detection = None
+                    smoother.reset()
+                    if reaction_gate.is_detecting():
+                        emotion_stabilizer.reset(clear_stable=True)
+                        last_stable_emotion = None
+                        last_stable_confidence = None
+                        last_stable_raw_label = None
+            stage_times["post_detect"] = time.perf_counter() - post_detect_start
+
+            if detection is not None:
+                pan_tilt_controller.update(detection.bbox, frame.shape)
+
+            preprocess_start = time.perf_counter()
+            face_roi = preprocessor.prepare_face_roi(frame, detection)
+            stage_times["preprocess"] = time.perf_counter() - preprocess_start
+
+            display_emotion = last_stable_emotion if config.stabilization.hold_last_stable else None
+            display_confidence = last_stable_confidence if config.stabilization.hold_last_stable else None
+            display_raw_label = last_stable_raw_label if config.logging.show_raw_label else None
+            show_raw_label = False
+            debug_images = None
+            reaction_emotion: Optional[str] = None
+            previous_gate_state = reaction_gate.state
+
+            if not reaction_gate.is_detecting():
+                reaction_gate.update(None)
+                if reaction_gate.is_detecting():
+                    emotion_stabilizer.reset(clear_stable=True)
+                    last_stable_emotion = None
+                    last_stable_confidence = None
+                    last_stable_raw_label = None
+
+            if reaction_gate.is_detecting() and face_roi is not None:
+                predict_start = time.perf_counter()
+                emotion_label, confidence = predictor.predict(
+                    face_roi,
+                    use_equalization=config.face_roi.onnx_use_equalization,
+                )
+                if emotion_label is not None and predictor.can_save_debug_sample():
+                    predictor.save_debug_sample(
+                        frame,
+                        predictor.last_roi,
+                        predictor.last_onnx_input_64,
+                    )
+                stage_times["predict"] = time.perf_counter() - predict_start
+
+                top3 = getattr(predictor, "last_top3", [])
+                stable_result = emotion_stabilizer.update(
+                    emotion_label,
+                    confidence,
+                    raw_label=predictor.last_raw_label,
+                    top3=top3,
+                )
+                last_stable_emotion = stable_result.emotion
+                last_stable_confidence = stable_result.confidence
+                last_stable_raw_label = stable_result.raw_label
+                if (
+                    stable_result.reason is not None
+                    and stable_result.reason.startswith("stable_window")
+                    and stable_result.emotion != config.reaction_gate.neutral_label
+                ):
+                    reaction_emotion = stable_result.emotion
+
+                display_emotion = last_stable_emotion
+                display_confidence = last_stable_confidence
+                display_raw_label = last_stable_raw_label
+                show_raw_label = config.logging.show_raw_label and display_emotion is not None
+                if debug_pipeline:
+                    debug_images = preprocessor.get_debug_views(
+                        frame,
+                        predictor.last_roi,
+                        predictor.last_onnx_input_64,
+                    )
+            else:
+                stage_times["predict"] = 0.0
+
+            if reaction_gate.is_detecting():
+                should_log_summary = reaction_gate.detecting_has_elapsed()
+                summary = None
+                if should_log_summary:
+                    summary = emotion_stabilizer.summarize(
+                        neutral_label=config.reaction_gate.neutral_label
+                    )
+                    print("[REACTION] detecting_summary", *summary.to_log_parts())
+
+                triggered_emotion = reaction_gate.update(reaction_emotion)
+                if triggered_emotion is not None:
+                    print(f"[REACTION] trigger emotion={triggered_emotion}")
+                    reaction_manager.handle(triggered_emotion)
+                elif should_log_summary and summary is not None:
+                    print("[REACTION] no_trigger", *summary.to_log_parts())
+                    if reaction_gate.is_detecting():
+                        reaction_gate.restart_detecting_window(reason=summary.reason)
+
+            if (
+                previous_gate_state == ReactionGateState.COOLDOWN
+                and reaction_gate.state == ReactionGateState.IDLE
+            ):
+                reaction_manager.handle(reaction_display_config.idle_emotion)
+
+            text = _format_emotion_text(
+                display_emotion,
+                display_confidence,
+                display_raw_label,
+                show_raw_label,
+            )
+            _draw_emotion_text(frame, text)
+
+            if config.logging.draw_detection:
+                face_detector.draw(frame, detection)
+
+            if show_camera_window:
+                cv2.imshow("Rusty - Emotion Recognition", frame)
+            if debug_pipeline and debug_images is not None:
+                _show_debug_pipeline(debug_images)
+
+            if show_camera_window:
+                key = cv2.waitKey(1) & 0xFF
+                if key in (ord("q"), 27):
+                    break
+                if key == ord("d"):
+                    debug_pipeline = not debug_pipeline
+                    print("Debug mode:", debug_pipeline)
+
+            stage_times["total"] = time.perf_counter() - loop_start
+            perf_tracker.record(stage_times)
+            frame_counter += 1
+
+            if (
+                config.logging.show_perf
+                and perf_tracker.frame_count % config.logging.perf_log_every_n_frames == 0
+            ):
+                _log_perf(perf_tracker)
+
+    finally:
+        camera.release()
+        pan_tilt_controller.close()
+        reaction_manager.close()
+        cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
