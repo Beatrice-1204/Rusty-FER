@@ -21,6 +21,10 @@ class MockPanTiltController:
         self._frame_count = 0
         self._last_logged_position = (self.pan, self.tilt)
         self._last_log_time = 0.0
+        self._last_move_error_x: Optional[float] = None
+        self._last_move_error_y: Optional[float] = None
+        self._last_move_pan_delta = 0.0
+        self._last_move_tilt_delta = 0.0
         self._tracker = FaceTrackingController(
             dead_zone_x=config.dead_zone_x,
             dead_zone_y=config.dead_zone_y,
@@ -29,6 +33,11 @@ class MockPanTiltController:
             invert_tilt=config.invert_tilt,
             error_smoothing_alpha=config.error_smoothing_alpha,
             min_move_updates=config.min_move_updates,
+            proportional_control_enabled=config.proportional_control_enabled,
+            proportional_gain_x=config.proportional_gain_x,
+            proportional_gain_y=config.proportional_gain_y,
+            min_step_degrees=config.min_step_degrees,
+            max_step_degrees=config.max_step_degrees,
         )
 
         if not log_startup:
@@ -48,7 +57,9 @@ class MockPanTiltController:
             return
 
         tracking_update = self._tracker.update(face_bbox, frame_shape)
+        self._log_feedback(tracking_update.error_x, tracking_update.error_y)
         if not tracking_update.should_move:
+            self._log_tracking_update(tracking_update, moved=False)
             return
 
         previous_pan = self.pan
@@ -65,7 +76,18 @@ class MockPanTiltController:
         )
 
         if self.pan != previous_pan or self.tilt != previous_tilt:
-            self._log_update(tracking_update.error_x, tracking_update.error_y)
+            self._log_update(
+                tracking_update.error_x,
+                tracking_update.error_y,
+                tracking_update.pan_delta,
+                tracking_update.tilt_delta,
+            )
+            self._last_move_error_x = tracking_update.error_x
+            self._last_move_error_y = tracking_update.error_y
+            self._last_move_pan_delta = tracking_update.pan_delta
+            self._last_move_tilt_delta = tracking_update.tilt_delta
+        else:
+            self._log_tracking_update(tracking_update, moved=False)
 
     def close(self) -> None:
         pass
@@ -75,12 +97,18 @@ class MockPanTiltController:
         update_every = max(1, int(self.config.update_every_n_frames))
         return self._frame_count % update_every == 0
 
-    def _log_update(self, error_x: float, error_y: float) -> None:
+    def _log_update(
+        self,
+        error_x: float,
+        error_y: float,
+        pan_delta: float,
+        tilt_delta: float,
+    ) -> None:
         now = time.monotonic()
         position = (self.pan, self.tilt)
         position_changed = position != self._last_logged_position
         enough_time_elapsed = now - self._last_log_time >= 1.0
-        if not position_changed and not enough_time_elapsed:
+        if not self.config.debug_tracking and not position_changed and not enough_time_elapsed:
             return
 
         print(
@@ -89,9 +117,51 @@ class MockPanTiltController:
             f"tilt={self.tilt:.1f}",
             f"error_x={error_x:.1f}",
             f"error_y={error_y:.1f}",
+            f"pan_delta={pan_delta:.2f}",
+            f"tilt_delta={tilt_delta:.2f}",
         )
         self._last_logged_position = position
         self._last_log_time = now
+
+    def _log_tracking_update(self, tracking_update, moved: bool) -> None:
+        if not self.config.debug_tracking:
+            return
+
+        print(
+            "[PAN_TILT] track",
+            f"pan={self.pan:.1f}",
+            f"tilt={self.tilt:.1f}",
+            f"error_x={tracking_update.error_x:.1f}",
+            f"error_y={tracking_update.error_y:.1f}",
+            f"pan_delta={tracking_update.pan_delta:.2f}",
+            f"tilt_delta={tracking_update.tilt_delta:.2f}",
+            f"moved={moved}",
+        )
+
+    def _log_feedback(self, error_x: float, error_y: float) -> None:
+        if not self.config.debug_tracking:
+            return
+
+        parts = ["[PAN_TILT] feedback"]
+        if self._last_move_pan_delta != 0.0 and self._last_move_error_x is not None:
+            improved_x = abs(error_x) < abs(self._last_move_error_x)
+            parts.extend([
+                f"prev_error_x={self._last_move_error_x:.1f}",
+                f"current_error_x={error_x:.1f}",
+                f"pan_delta={self._last_move_pan_delta:.2f}",
+                f"improved_x={improved_x}",
+            ])
+        if self._last_move_tilt_delta != 0.0 and self._last_move_error_y is not None:
+            improved_y = abs(error_y) < abs(self._last_move_error_y)
+            parts.extend([
+                f"prev_error_y={self._last_move_error_y:.1f}",
+                f"current_error_y={error_y:.1f}",
+                f"tilt_delta={self._last_move_tilt_delta:.2f}",
+                f"improved_y={improved_y}",
+            ])
+
+        if len(parts) > 1:
+            print(*parts)
 
 
 class ArducamPanTiltController(MockPanTiltController):

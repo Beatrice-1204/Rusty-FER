@@ -27,6 +27,11 @@ class FaceTrackingController:
         invert_tilt: bool = False,
         error_smoothing_alpha: float = 0.25,
         min_move_updates: int = 1,
+        proportional_control_enabled: bool = False,
+        proportional_gain_x: float = 2.5,
+        proportional_gain_y: float = 2.0,
+        min_step_degrees: float = 0.2,
+        max_step_degrees: float = 2.0,
     ):
         self.dead_zone_x = max(0, int(dead_zone_x))
         self.dead_zone_y = max(0, int(dead_zone_y))
@@ -35,6 +40,11 @@ class FaceTrackingController:
         self.invert_tilt = bool(invert_tilt)
         self.error_smoothing_alpha = _clamp(float(error_smoothing_alpha), 0.0, 1.0)
         self.min_move_updates = max(1, int(min_move_updates))
+        self.proportional_control_enabled = bool(proportional_control_enabled)
+        self.proportional_gain_x = abs(float(proportional_gain_x))
+        self.proportional_gain_y = abs(float(proportional_gain_y))
+        self.min_step_degrees = abs(float(min_step_degrees))
+        self.max_step_degrees = max(self.min_step_degrees, abs(float(max_step_degrees)))
         self._smoothed_error_x: Optional[float] = None
         self._smoothed_error_y: Optional[float] = None
         self._pan_outside_dead_zone_updates = 0
@@ -73,7 +83,11 @@ class FaceTrackingController:
         if abs(error_x) > self.dead_zone_x:
             self._pan_outside_dead_zone_updates += 1
             if self._pan_outside_dead_zone_updates >= self.min_move_updates:
-                pan_delta = self.step_degrees if error_x > 0 else -self.step_degrees
+                pan_delta = self._axis_delta(
+                    error=error_x,
+                    frame_half_size=frame_width / 2.0,
+                    gain=self.proportional_gain_x,
+                )
                 if self.invert_pan:
                     pan_delta = -pan_delta
         else:
@@ -83,7 +97,11 @@ class FaceTrackingController:
         if abs(error_y) > self.dead_zone_y:
             self._tilt_outside_dead_zone_updates += 1
             if self._tilt_outside_dead_zone_updates >= self.min_move_updates:
-                tilt_delta = self.step_degrees if error_y > 0 else -self.step_degrees
+                tilt_delta = self._axis_delta(
+                    error=error_y,
+                    frame_half_size=frame_height / 2.0,
+                    gain=self.proportional_gain_y,
+                )
                 if self.invert_tilt:
                     tilt_delta = -tilt_delta
         else:
@@ -95,6 +113,16 @@ class FaceTrackingController:
             error_x=error_x,
             error_y=error_y,
         )
+
+    def _axis_delta(self, error: float, frame_half_size: float, gain: float) -> float:
+        direction = 1.0 if error > 0 else -1.0
+        if not self.proportional_control_enabled or frame_half_size <= 0:
+            return direction * self.step_degrees
+
+        normalized_error = min(1.0, abs(error) / frame_half_size)
+        step = normalized_error * gain
+        step = _clamp(step, self.min_step_degrees, self.max_step_degrees)
+        return direction * step
 
     def _smooth_errors(self, raw_error_x: float, raw_error_y: float) -> Tuple[float, float]:
         if self._smoothed_error_x is None or self._smoothed_error_y is None:

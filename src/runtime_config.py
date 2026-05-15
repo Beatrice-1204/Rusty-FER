@@ -52,17 +52,23 @@ class PanTiltConfig:
     tilt_channel: int = 1 #canalul pt tilt
     invert_pan: bool = False    
     invert_tilt: bool = False   
+    debug_tracking: bool = True
     update_every_n_frames: int = 2
     dead_zone_x: int = 50
     dead_zone_y: int = 40
     error_smoothing_alpha: float = 0.35#procentaj pt eroarea curenta (1 este fara smoothing)
     min_move_updates: int = 1 #la cate update-uri in afara dead zone se ia in considerare miscarea 
+    proportional_control_enabled: bool = True
+    proportional_gain_x: float = 2.5
+    proportional_gain_y: float = 2.0
+    min_step_degrees: float = 0.2
+    max_step_degrees: float = 2.0
     pan_start: float = 90.0
     tilt_start: float = 90.0
     pan_min: float = 0.0
     pan_max: float = 180.0
-    tilt_min: float = 0.0
-    tilt_max: float = 180.0
+    tilt_min: float = 60.0
+    tilt_max: float = 120.0
     step_degrees: float = 3.0
 
 
