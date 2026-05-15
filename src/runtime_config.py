@@ -63,7 +63,7 @@ class PanTiltConfig:
     proportional_gain_y: float = 2.0
     min_step_degrees: float = 0.2
     max_step_degrees: float = 2.0
-    search_enabled: bool = False
+    search_enabled: bool = True 
     search_after_no_face_seconds: float = 2.5
     search_update_every_n_frames: int = 5
     search_step_degrees: float = 1.0
