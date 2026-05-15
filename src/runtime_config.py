@@ -48,14 +48,14 @@ class UndistortConfig:
 class PanTiltConfig:
     enabled: bool = True 
     backend: str = "arducam"
-    pan_channel: int = 0 #canalul pt pan
-    tilt_channel: int = 1 #canalul pt tilt
+    pan_channel: int = 1 #canalul pt pan
+    tilt_channel: int = 0 #canalul pt tilt
     invert_pan: bool = False    
-    invert_tilt: bool = False   
+    invert_tilt: bool = True    
     debug_tracking: bool = True
     update_every_n_frames: int = 2
-    dead_zone_x: int = 50
-    dead_zone_y: int = 40
+    dead_zone_x: int = 70
+    dead_zone_y: int = 50
     error_smoothing_alpha: float = 0.35#procentaj pt eroarea curenta (1 este fara smoothing)
     min_move_updates: int = 1 #la cate update-uri in afara dead zone se ia in considerare miscarea 
     proportional_control_enabled: bool = True
@@ -67,8 +67,8 @@ class PanTiltConfig:
     tilt_start: float = 90.0
     pan_min: float = 0.0
     pan_max: float = 180.0
-    tilt_min: float = 60.0
-    tilt_max: float = 120.0
+    tilt_min: float = 50.0
+    tilt_max: float = 140.0
     step_degrees: float = 3.0
 
 
