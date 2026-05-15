@@ -25,6 +25,10 @@ class MockPanTiltController:
         self._last_move_error_y: Optional[float] = None
         self._last_move_pan_delta = 0.0
         self._last_move_tilt_delta = 0.0
+        self._last_face_seen_at = time.monotonic()
+        self._search_frame_count = 0
+        self._search_direction = 1.0
+        self._search_active = False
         self._tracker = FaceTrackingController(
             dead_zone_x=config.dead_zone_x,
             dead_zone_y=config.dead_zone_y,
@@ -50,8 +54,18 @@ class MockPanTiltController:
             print(f"[PAN_TILT] disabled reason={reason} backend={backend_label}")
 
     def update(self, face_bbox: Optional[FaceBbox], frame_shape) -> None:
-        if not self.active or face_bbox is None:
+        if not self.active:
             return
+
+        if face_bbox is None:
+            self._handle_no_face()
+            return
+
+        self._last_face_seen_at = time.monotonic()
+        if self._search_active:
+            self._search_active = False
+            if self.config.debug_tracking:
+                print("[PAN_TILT] search stopped reason=face_detected")
 
         if not self._should_update_this_frame():
             return
@@ -91,6 +105,39 @@ class MockPanTiltController:
 
     def close(self) -> None:
         pass
+
+    def _handle_no_face(self) -> None:
+        self._tracker.reset()
+        if not self.config.search_enabled:
+            return
+
+        no_face_seconds = time.monotonic() - self._last_face_seen_at
+        if no_face_seconds < float(self.config.search_after_no_face_seconds):
+            return
+
+        if not self._should_search_this_frame():
+            return
+
+        self._search_active = True
+        previous_pan = self.pan
+        step = abs(float(self.config.search_step_degrees)) * self._search_direction
+        next_pan = self.pan + step
+
+        if next_pan >= float(self.config.pan_max):
+            next_pan = float(self.config.pan_max)
+            self._search_direction = -1.0
+        elif next_pan <= float(self.config.pan_min):
+            next_pan = float(self.config.pan_min)
+            self._search_direction = 1.0
+
+        self.pan = _clamp(next_pan, self.config.pan_min, self.config.pan_max)
+        if self.pan != previous_pan:
+            self._log_search_update(no_face_seconds)
+
+    def _should_search_this_frame(self) -> bool:
+        self._search_frame_count += 1
+        update_every = max(1, int(self.config.search_update_every_n_frames))
+        return self._search_frame_count % update_every == 0
 
     def _should_update_this_frame(self) -> bool:
         self._frame_count += 1
@@ -163,6 +210,15 @@ class MockPanTiltController:
         if len(parts) > 1:
             print(*parts)
 
+    def _log_search_update(self, no_face_seconds: float) -> None:
+        print(
+            "[PAN_TILT] search",
+            f"pan={self.pan:.1f}",
+            f"tilt={self.tilt:.1f}",
+            f"direction={self._search_direction:.0f}",
+            f"no_face_seconds={no_face_seconds:.1f}",
+        )
+
 
 class ArducamPanTiltController(MockPanTiltController):
     def __init__(self, config):
@@ -197,6 +253,20 @@ class ArducamPanTiltController(MockPanTiltController):
             except Exception as exc:
                 self.active = False
                 print(f"[PAN_TILT] disabled reason=arducam_update_failed backend=arducam error={exc}")
+
+    def _handle_no_face(self) -> None:
+        if not self.active:
+            return
+
+        previous_pan = self.pan
+        previous_tilt = self.tilt
+        super()._handle_no_face()
+        if self.pan != previous_pan or self.tilt != previous_tilt:
+            try:
+                self._apply_servo_angles()
+            except Exception as exc:
+                self.active = False
+                print(f"[PAN_TILT] disabled reason=arducam_search_failed backend=arducam error={exc}")
 
     def close(self) -> None:
         self._kit = None

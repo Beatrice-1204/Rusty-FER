@@ -239,8 +239,10 @@ def main():
                         last_stable_raw_label = None
             stage_times["post_detect"] = time.perf_counter() - post_detect_start
 
-            if detection is not None:
-                pan_tilt_controller.update(detection.bbox, frame.shape)
+            pan_tilt_controller.update(
+                detection.bbox if detection is not None else None,
+                frame.shape,
+            )
 
             preprocess_start = time.perf_counter()
             face_roi = preprocessor.prepare_face_roi(frame, detection)
