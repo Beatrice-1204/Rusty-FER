@@ -10,6 +10,7 @@ from emotion_recognition.emotion_stabilizer import EmotionStabilizer
 from emotion_recognition.onnx_emotion_predictor import OnnxEmotionPredictor
 from face_detection.yunet_face_detector import YuNetFaceDetection, YuNetFaceDetector
 from image_processing.image_preprocessor import ImagePreprocessor
+from motion import BLEMotionController
 from reactions.audio_controller import AudioController
 from reactions.display_controller import DisplayController
 from reactions.reaction_config import ReactionAudioConfig, ReactionDisplayConfig
@@ -85,6 +86,11 @@ def main():
     camera_width = int(os.getenv("RUSTY_CAMERA_WIDTH", str(config.camera.width)))
     camera_height = int(os.getenv("RUSTY_CAMERA_HEIGHT", str(config.camera.height)))
     camera_index = int(os.getenv("RUSTY_CAMERA_INDEX", str(config.camera.camera_index)))
+    motion_enabled = os.getenv(
+        "RUSTY_MOTION_ENABLED",
+        str(config.motion.enabled),
+    ).lower() in ("1", "true", "yes", "on")
+    motion_backend = os.getenv("RUSTY_MOTION_BACKEND", config.motion.backend)
 
     camera = CameraStream(
         camera_index=camera_index,
@@ -148,9 +154,24 @@ def main():
     )
     reaction_display_config = ReactionDisplayConfig()
     reaction_audio_config = ReactionAudioConfig()
+    motion_controller = None
+    if motion_enabled:
+        if motion_backend == "ble":
+            motion_controller = BLEMotionController(
+                target_address=os.getenv(
+                    "RUSTY_MOTION_TARGET_ADDRESS",
+                    config.motion.target_address,
+                ),
+                char_uuid=os.getenv("RUSTY_MOTION_CHAR_UUID", config.motion.char_uuid),
+                enabled=True,
+            )
+        else:
+            print(f"[MOTION] unsupported backend={motion_backend}; motion disabled")
+
     reaction_manager = ReactionManager(
         DisplayController(reaction_display_config),
         AudioController(reaction_audio_config),
+        motion_controller,
     )
     pan_tilt_controller = create_pan_tilt_controller(config.pan_tilt)
     reaction_manager.handle(reaction_display_config.idle_emotion)

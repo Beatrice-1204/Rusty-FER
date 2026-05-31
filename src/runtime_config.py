@@ -77,6 +77,14 @@ class PanTiltConfig:
 
 
 @dataclass(frozen=True)
+class MotionConfig:
+    enabled: bool = False
+    backend: str = "ble"
+    target_address: str = "7D9FC8D4-E587-9B56-B7D8-C62006AB09FD"
+    char_uuid: str = "FFE1"
+
+
+@dataclass(frozen=True)
 class EmotionModelConfig:
     model_path: str = project_path("models", "ONNX", "emotion-ferplus-7.onnx")
 
@@ -155,6 +163,7 @@ class RuntimeConfig:
     face_roi: FaceRoiConfig = field(default_factory=FaceRoiConfig)
     undistort: UndistortConfig = field(default_factory=UndistortConfig)
     pan_tilt: PanTiltConfig = field(default_factory=PanTiltConfig)
+    motion: MotionConfig = field(default_factory=MotionConfig)
     emotion_model: EmotionModelConfig = field(default_factory=EmotionModelConfig)
     smoothing: SmoothingConfig = field(default_factory=SmoothingConfig)
     face_quality: FaceQualityConfig = field(default_factory=FaceQualityConfig)

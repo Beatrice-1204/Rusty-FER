@@ -9,14 +9,18 @@ class ReactionManager:
         self,
         display_controller: DisplayController,
         audio_controller: Optional[AudioController] = None,
+        motion_controller=None,
     ):
         self.display_controller = display_controller
         self.audio_controller = audio_controller
+        self.motion_controller = motion_controller
 
     def handle(self, emotion: str) -> None:
         self.display_controller.show(emotion)
         if self.audio_controller is not None:
             self.audio_controller.play(emotion)
+        if self.motion_controller is not None:
+            self.motion_controller.play_emotion(emotion)
 
     def update(self) -> bool:
         for controller in (self.display_controller, self.audio_controller):
@@ -33,3 +37,5 @@ class ReactionManager:
         self.display_controller.close()
         if self.audio_controller is not None:
             self.audio_controller.close()
+        if self.motion_controller is not None:
+            self.motion_controller.close()
