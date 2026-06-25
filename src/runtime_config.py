@@ -50,8 +50,8 @@ class PanTiltConfig:
     backend: str = "arducam"
     pan_channel: int = 1 #canalul pt pan
     tilt_channel: int = 0 #canalul pt tilt
-    invert_pan: bool = False    
-    invert_tilt: bool = True    
+    invert_pan: bool = True     
+    invert_tilt: bool = False     
     debug_tracking: bool = True
     update_every_n_frames: int = 2
     dead_zone_x: int = 70
@@ -64,12 +64,12 @@ class PanTiltConfig:
     min_step_degrees: float = 0.2
     max_step_degrees: float = 2.0
     search_enabled: bool = True 
-    search_after_no_face_seconds: float = 2.5
+    search_after_no_face_seconds: float = 5.0
     search_update_every_n_frames: int = 5
     search_step_degrees: float = 1.0
     pan_start: float = 90.0
     tilt_start: float = 90.0
-    pan_min: float = 0.0
+    pan_min: float = 50.0
     pan_max: float = 180.0
     tilt_min: float = 50.0
     tilt_max: float = 140.0
@@ -78,9 +78,9 @@ class PanTiltConfig:
 
 @dataclass(frozen=True)
 class MotionConfig:
-    enabled: bool = False
+    enabled: bool = False    
     backend: str = "ble"
-    target_address: str = "7D9FC8D4-E587-9B56-B7D8-C62006AB09FD"
+    target_address: str = "DA:AA:0D:6C:E3:A5"
     char_uuid: str = "FFE1"
 
 

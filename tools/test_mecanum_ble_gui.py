@@ -4,7 +4,7 @@ import tkinter as tk
 from bleak import BleakClient
 
 # -------- BLE CONFIG --------
-TARGET_ADDRESS = "7D9FC8D4-E587-9B56-B7D8-C62006AB09FD"
+TARGET_ADDRESS = "DA:AA:0D:6C:E3:A5"
 CHAR_UUID = "FFE1"
 
 # -------- BLE STATE --------
