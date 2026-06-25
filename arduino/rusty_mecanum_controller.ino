@@ -43,6 +43,13 @@ void setup() {
   pinMode(RF_ENABLE_PIN, OUTPUT);
   pinMode(RB_ENABLE_PIN, OUTPUT);
 
+  // dezactivam driverele la inceput pentru a preveni miscari nedorite
+  digitalWrite(LF_ENABLE_PIN, DRIVER_ENABLE_OFF);
+  digitalWrite(LB_ENABLE_PIN, DRIVER_ENABLE_OFF);
+  digitalWrite(RF_ENABLE_PIN, DRIVER_ENABLE_OFF);
+  digitalWrite(RB_ENABLE_PIN, DRIVER_ENABLE_OFF);
+  motorsEnabled = false;
+
   LF.setMaxSpeed(5000);
   LB.setMaxSpeed(5000);
   RF.setMaxSpeed(5000);
