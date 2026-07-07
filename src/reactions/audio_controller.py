@@ -38,6 +38,14 @@ class AudioController:
 
         self._startup_sound.play()
 
+    def stop(self) -> None:
+        if not self._enabled or self._pygame is None:
+            return
+
+        mixer = getattr(self._pygame, "mixer", None)
+        if mixer is not None:
+            mixer.stop()
+
     def close(self) -> None:
         if self._pygame is not None:
             try:

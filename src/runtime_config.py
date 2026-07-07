@@ -10,6 +10,15 @@ class AppConfig:
 
 
 @dataclass(frozen=True)
+class RobotModeConfig:
+    enabled: bool = True
+    initial_mode: str = "STANDBY"
+    inactivity_timeout_seconds: float = 30.0
+    activation_required_seconds: float = 1.5
+    standby_image: str = "idle.png"
+
+
+@dataclass(frozen=True)
 class CameraConfig:
     backend: str = "picamera2"
     camera_index: int = 0
@@ -158,6 +167,7 @@ class LoggingConfig:
 @dataclass(frozen=True)
 class RuntimeConfig:
     app: AppConfig = field(default_factory=AppConfig)
+    robot_mode: RobotModeConfig = field(default_factory=RobotModeConfig)
     camera: CameraConfig = field(default_factory=CameraConfig)
     yunet: YuNetConfig = field(default_factory=YuNetConfig)
     face_roi: FaceRoiConfig = field(default_factory=FaceRoiConfig)

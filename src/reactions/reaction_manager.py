@@ -33,6 +33,15 @@ class ReactionManager:
         if self.audio_controller is not None:
             self.audio_controller.play_startup()
 
+    def stop(self) -> None:
+        for controller in (self.audio_controller, self.motion_controller):
+            if controller is None:
+                continue
+
+            stop = getattr(controller, "stop", None)
+            if stop is not None:
+                stop()
+
     def close(self) -> None:
         self.display_controller.close()
         if self.audio_controller is not None:

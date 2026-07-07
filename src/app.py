@@ -4,6 +4,7 @@ from typing import Optional
 
 import cv2
 import numpy as np
+import pygame
 
 from camera.camera_stream import CameraStream
 from emotion_recognition.emotion_stabilizer import EmotionStabilizer
@@ -16,9 +17,37 @@ from reactions.display_controller import DisplayController
 from reactions.reaction_config import ReactionAudioConfig, ReactionDisplayConfig
 from reactions.reaction_gate import ReactionGate, ReactionGateState
 from reactions.reaction_manager import ReactionManager
+from robot_mode import RobotModeManager
 from runtime_config import RUNTIME_CONFIG
 from runtime_support import DetectionSmoother, FaceQualityValidator, PerfTracker
 from tracking import create_pan_tilt_controller
+
+
+CAMERA_WINDOW_NAME = "Rusty - Emotion Recognition"
+CAMERA_WINDOW_WIDTH = 320
+CAMERA_WINDOW_HEIGHT = 240
+
+
+def _set_camera_window_visible(visible: bool, screen_width: int) -> None:
+    if visible:
+        cv2.namedWindow(CAMERA_WINDOW_NAME, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(
+            CAMERA_WINDOW_NAME,
+            CAMERA_WINDOW_WIDTH,
+            CAMERA_WINDOW_HEIGHT,
+        )
+        cv2.moveWindow(
+            CAMERA_WINDOW_NAME,
+            max(0, screen_width - CAMERA_WINDOW_WIDTH),
+            0,
+        )
+        return
+
+    try:
+        cv2.destroyWindow(CAMERA_WINDOW_NAME)
+    except cv2.error:
+        pass
+
 
 def _format_emotion_text(
     emotion_label: Optional[str],
@@ -78,6 +107,9 @@ def _log_perf(perf_tracker: PerfTracker) -> None:
 
 def main():
     config = RUNTIME_CONFIG
+    robot_mode_manager = RobotModeManager(config.robot_mode)
+    print(f"[MODE] initial={robot_mode_manager.mode.value}")
+
     show_camera_window = config.logging.show_camera_window
     debug_pipeline = config.logging.debug_pipeline and show_camera_window
     app_started_at = time.perf_counter()
@@ -174,17 +206,23 @@ def main():
         motion_controller,
     )
     pan_tilt_controller = create_pan_tilt_controller(config.pan_tilt)
-    reaction_manager.handle(reaction_display_config.idle_emotion)
-    reaction_manager.play_startup()
+    reaction_manager.display_controller.show(reaction_display_config.idle_emotion)
+    startup_audio_played = False
+    if not config.robot_mode.enabled or robot_mode_manager.is_active():
+        reaction_manager.play_startup()
+        startup_audio_played = True
 
     frame_counter = 0
     last_detection: Optional[YuNetFaceDetection] = None
     last_stable_emotion: Optional[str] = None
     last_stable_confidence: Optional[float] = None
     last_stable_raw_label: Optional[str] = None
+    camera_toggle_key_was_pressed = False
+    display_surface = pygame.display.get_surface()
+    screen_width = display_surface.get_width() if display_surface is not None else 0
 
     if show_camera_window:
-        cv2.namedWindow("Rusty - Emotion Recognition")
+        _set_camera_window_visible(True, screen_width)
 
     try:
         while True:
@@ -207,6 +245,12 @@ def main():
 
             if not reaction_manager.update():
                 break
+
+            camera_toggle_key_pressed = pygame.key.get_pressed()[pygame.K_c]
+            if camera_toggle_key_pressed and not camera_toggle_key_was_pressed:
+                show_camera_window = not show_camera_window
+                _set_camera_window_visible(show_camera_window, screen_width)
+            camera_toggle_key_was_pressed = camera_toggle_key_pressed
 
             capture_start = time.perf_counter()
             frame = camera.read()
@@ -240,7 +284,10 @@ def main():
                     detection = None
                     last_detection = None
                     smoother.reset()
-                    if reaction_gate.is_detecting():
+                    if (
+                        not config.robot_mode.enabled
+                        or robot_mode_manager.is_active()
+                    ) and reaction_gate.is_detecting():
                         emotion_stabilizer.reset(clear_stable=True)
                         last_stable_emotion = None
                         last_stable_confidence = None
@@ -253,12 +300,62 @@ def main():
                     detection = None
                     last_detection = None
                     smoother.reset()
-                    if reaction_gate.is_detecting():
+                    if (
+                        not config.robot_mode.enabled
+                        or robot_mode_manager.is_active()
+                    ) and reaction_gate.is_detecting():
                         emotion_stabilizer.reset(clear_stable=True)
                         last_stable_emotion = None
                         last_stable_confidence = None
                         last_stable_raw_label = None
             stage_times["post_detect"] = time.perf_counter() - post_detect_start
+
+            face_detected = detection is not None
+            previous_mode = robot_mode_manager.mode
+            if config.robot_mode.enabled:
+                robot_mode_manager.update(face_detected)
+                if (
+                    robot_mode_manager.mode != previous_mode
+                    and robot_mode_manager.is_active()
+                    and not startup_audio_played
+                ):
+                    reaction_manager.play_startup()
+                    startup_audio_played = True
+
+            if config.robot_mode.enabled and robot_mode_manager.is_standby():
+                if robot_mode_manager.mode != previous_mode:
+                    reaction_manager.stop()
+                    reaction_manager.display_controller.show(
+                        reaction_display_config.idle_emotion
+                    )
+
+                if config.logging.draw_detection:
+                    face_detector.draw(frame, detection)
+
+                if show_camera_window:
+                    cv2.imshow(CAMERA_WINDOW_NAME, frame)
+                    key = cv2.waitKey(1) & 0xFF
+                    if key in (ord("q"), 27):
+                        break
+                    if key in (ord("c"), ord("C")):
+                        show_camera_window = False
+                        _set_camera_window_visible(False, screen_width)
+                    if key == ord("d"):
+                        debug_pipeline = not debug_pipeline
+                        print("Debug mode:", debug_pipeline)
+
+                stage_times["total"] = time.perf_counter() - loop_start
+                perf_tracker.record(stage_times)
+                frame_counter += 1
+
+                if (
+                    config.logging.show_perf
+                    and perf_tracker.frame_count
+                    % config.logging.perf_log_every_n_frames
+                    == 0
+                ):
+                    _log_perf(perf_tracker)
+                continue
 
             pan_tilt_controller.update(
                 detection.bbox if detection is not None else None,
@@ -365,7 +462,7 @@ def main():
                 face_detector.draw(frame, detection)
 
             if show_camera_window:
-                cv2.imshow("Rusty - Emotion Recognition", frame)
+                cv2.imshow(CAMERA_WINDOW_NAME, frame)
             if debug_pipeline and debug_images is not None:
                 _show_debug_pipeline(debug_images)
 
@@ -373,6 +470,9 @@ def main():
                 key = cv2.waitKey(1) & 0xFF
                 if key in (ord("q"), 27):
                     break
+                if key in (ord("c"), ord("C")):
+                    show_camera_window = False
+                    _set_camera_window_visible(False, screen_width)
                 if key == ord("d"):
                     debug_pipeline = not debug_pipeline
                     print("Debug mode:", debug_pipeline)

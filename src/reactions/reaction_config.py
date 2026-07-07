@@ -26,6 +26,11 @@ class ReactionDisplayConfig:
     image_names: Dict[str, str] = field(default_factory=lambda: dict(REACTION_IMAGE_NAMES))
     idle_emotion: str = "idle"
     fullscreen: bool = True
+    procedural_idle_enabled: bool = True
+    procedural_happy_enabled: bool = True
+    procedural_surprise_enabled: bool = True
+    procedural_angry_enabled: bool = True
+    procedural_sad_enabled: bool = True 
 
 
 @dataclass(frozen=True)
@@ -35,4 +40,3 @@ class ReactionAudioConfig:
     idle_emotion: str = "idle"
     startup_audio_name: str = "startup.wav"
     play_startup_audio: bool = True
-
